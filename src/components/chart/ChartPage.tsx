@@ -87,6 +87,7 @@ export default function ChartPage() {
   const lastDragTimeRef = useRef(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const chartRef = useRef(chart);
+  const firstLoadRef = useRef(true); // tracks first data load for scroll-to-end
   useEffect(() => { chartRef.current = chart; });
 
   const dec = isJPYPair(pair) ? 3 : 5;
@@ -101,11 +102,22 @@ export default function ChartPage() {
     const c = chartRef.current;
     const cw = (BASE_WIDTH + GAP) * c.scale;
     const chartW = sizeRef.current.w - PRICE_AXIS_W;
+
+    // If container size not ready, skip
+    if (chartW <= 0) return c.offset;
+
     const totalW = c.data.length * cw;
     const minOffset = -(totalW - chartW);
     const maxOffset = 0;
-    if (c.offset < minOffset) c.offset = minOffset;
-    if (c.offset > maxOffset) c.offset = maxOffset;
+
+    // First load: scroll to end (show latest candles on the right)
+    if (firstLoadRef.current && totalW > chartW) {
+      c.offset = minOffset + 10; // 10px padding from right edge
+      firstLoadRef.current = false;
+    } else {
+      if (c.offset < minOffset) c.offset = minOffset;
+      if (c.offset > maxOffset) c.offset = maxOffset;
+    }
     return c.offset;
   }, []);
 
@@ -126,13 +138,10 @@ export default function ChartPage() {
         complete: Boolean(c.complete),
       }));
       setChart(prev => {
-        if (prev.data.length === 0) {
-          // First load: scroll to show latest candles on the right
-          const stepW = BASE_WIDTH + GAP;
-          const chartW = sizeRef.current.w - PRICE_AXIS_W;
-          const totalW = mapped.length * stepW;
-          const newOffset = Math.min(0, -(totalW - chartW + 10));
-          return { ...prev, data: mapped, offset: newOffset };
+        if (prev.data.length === 0 && mapped.length > 0) {
+          // Mark first load — clampOffset will compute correct offset once size is ready
+          firstLoadRef.current = true;
+          return { ...prev, data: mapped, offset: 0 };
         }
         return { ...prev, data: mapped };
       });
@@ -146,7 +155,7 @@ export default function ChartPage() {
   useEffect(() => {
     if (currentTab !== 'chart') return;
     const id = setInterval(fetchData, REFRESH_MS);
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetching initial data on mount
+    // Initial data fetch on mount
     fetchData();
     return () => clearInterval(id);
   }, [currentTab, fetchData]);
@@ -257,7 +266,7 @@ export default function ChartPage() {
       ctx.stroke();
     }
 
-    /* ---- candles ---- */
+    /* ---- candles (proper candlestick rendering) ---- */
     for (let i = 0; i < data.length; i++) {
       const candle = data[i];
       const cx = i * cw + offset + candleW / 2;
@@ -265,26 +274,48 @@ export default function ChartPage() {
 
       const bull = candle.cl >= candle.o;
       const color = bull ? BULL : BEAR;
-      const alpha = candle.complete ? 1 : 0.65;
+      const alpha = candle.complete ? 1 : 0.6;
       ctx.globalAlpha = alpha;
 
-      /* wick */
       const yHigh = priceToY(candle.h);
       const yLow = priceToY(candle.l);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = Math.max(1, scale > 2 ? 1.5 : 1);
-      ctx.beginPath();
-      ctx.moveTo(cx, yHigh);
-      ctx.lineTo(cx, yLow);
-      ctx.stroke();
-
-      /* body */
       const yOpen = priceToY(candle.o);
       const yClose = priceToY(candle.cl);
       const bodyTop = Math.min(yOpen, yClose);
-      const bodyH = Math.max(Math.abs(yClose - yOpen), 1);
-      ctx.fillStyle = color;
-      ctx.fillRect(cx - candleW / 2, bodyTop, candleW, bodyH);
+      const bodyBot = Math.max(yOpen, yClose);
+      const bodyH = Math.max(bodyBot - bodyTop, 2); // minimum 2px body for visibility
+      const halfBody = bodyH / 2;
+      const bodyCenter = bodyTop + halfBody;
+
+      /* Upper wick shadow (high → body top) */
+      const wickW = Math.max(1, Math.min(scale * 0.8, 1.5));
+      ctx.strokeStyle = color;
+      ctx.lineWidth = wickW;
+      ctx.beginPath();
+      ctx.moveTo(cx, yHigh);
+      ctx.lineTo(cx, bodyTop);
+      ctx.stroke();
+
+      /* Lower wick shadow (body bottom → low) */
+      ctx.beginPath();
+      ctx.moveTo(cx, bodyBot);
+      ctx.lineTo(cx, yLow);
+      ctx.stroke();
+
+      /* Candle body */
+      const bodyLeft = cx - candleW / 2;
+      if (bull) {
+        // Bullish: filled green body with subtle border
+        ctx.fillStyle = color;
+        ctx.fillRect(bodyLeft, bodyCenter - halfBody, candleW, bodyH);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(0.5, scale * 0.25);
+        ctx.strokeRect(bodyLeft + 0.25, bodyCenter - halfBody + 0.25, candleW - 0.5, bodyH - 0.5);
+      } else {
+        // Bearish: filled red body
+        ctx.fillStyle = color;
+        ctx.fillRect(bodyLeft, bodyCenter - halfBody, candleW, bodyH);
+      }
 
       ctx.globalAlpha = 1;
     }
@@ -711,7 +742,7 @@ export default function ChartPage() {
 
   const zoomReset = useCallback(() => {
     setChart(prev => {
-      const stepW = BASE_WIDTH + GAP;
+      const stepW = (BASE_WIDTH + GAP) * 1; // at scale 1
       const chartW = sizeRef.current.w - PRICE_AXIS_W;
       const totalW = prev.data.length * stepW;
       const endOffset = Math.min(0, -(totalW - chartW + 10));
@@ -771,7 +802,8 @@ export default function ChartPage() {
           value={pair}
           onChange={e => {
             setChartPair(e.target.value);
-            setChart(prev => ({ ...prev, offset: 0, velocity: 0 }));
+            firstLoadRef.current = true;
+            setChart(prev => ({ ...prev, data: [], offset: 0, velocity: 0 }));
             dirtyRef.current = true;
           }}
           className="rounded-lg px-3 py-1.5 text-sm font-mono text-white outline-none cursor-pointer"

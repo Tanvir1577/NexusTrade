@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import {
   LayoutDashboard,
   BarChart3,
@@ -7,7 +8,6 @@ import {
   History,
   Settings,
   User,
-  Zap,
 } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
@@ -38,13 +38,20 @@ export function DesktopSidebar() {
         <div className="px-5 pt-5 pb-4">
           <div className="flex items-center gap-3">
             <div
-              className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10"
+              className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl"
               style={{
+                background: 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(16,185,129,0.05))',
                 boxShadow:
                   'inset 0 0 0 1px rgba(16,185,129,0.22), 0 0 18px rgba(16,185,129,0.1)',
               }}
             >
-              <Zap className="h-5 w-5 text-emerald-400 drop-shadow-[0_0_6px_rgba(16,185,129,0.45)]" />
+              <Image
+                src="/logo-icon.png"
+                alt="NexusTrade Pro"
+                width={28}
+                height={28}
+                className="object-contain"
+              />
             </div>
             <div>
               <p className="text-[14px] font-black tracking-[0.14em] text-white/90">

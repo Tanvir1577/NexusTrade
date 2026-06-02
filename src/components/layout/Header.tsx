@@ -2,7 +2,6 @@
 
 import { useClock } from '@/hooks/use-clock';
 import { useStore } from '@/lib/store';
-import { Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function Header() {
@@ -12,28 +11,7 @@ export function Header() {
   return (
     <header className="sticky top-0 z-50 h-14 border-b border-white/[0.04] bg-[#070b14]/90 backdrop-blur-2xl">
       <div className="flex h-full items-center justify-between px-4 lg:px-6">
-        {/* ── Left: Brand ── */}
-        <div className="flex items-center gap-3">
-          <div
-            className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/10"
-            style={{
-              boxShadow: 'inset 0 0 0 1px rgba(16,185,129,0.22), 0 0 16px rgba(16,185,129,0.08)',
-            }}
-          >
-            <Zap className="h-[18px] w-[18px] text-emerald-400 drop-shadow-[0_0_6px_rgba(16,185,129,0.45)]" />
-          </div>
-          <div className="flex items-baseline gap-0.5 select-none">
-            <span className="text-[13px] font-black tracking-[0.16em] text-white/90">
-              Nexus
-            </span>
-            <span className="text-[13px] font-black tracking-[0.16em] text-emerald-400">
-              Trade
-            </span>
-            <span className="text-[13px] font-black tracking-[0.16em] text-white/40">
-              Pro
-            </span>
-          </div>
-        </div>
+        {/* ── Left: (empty — branding lives in sidebar) ── */}
 
         {/* ── Center: (reserved / empty) ── */}
 

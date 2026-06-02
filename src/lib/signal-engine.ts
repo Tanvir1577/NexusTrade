@@ -803,20 +803,60 @@ export function analyzeCandles(candles: CandleData[], pair: string, minScore: nu
 
   if (patterns.length === 0) return null;
 
-  const upScore = patterns.filter(r => r.dir === 'UP').reduce((a, r) => a + r.score, 0);
-  const dnScore = patterns.filter(r => r.dir === 'DOWN').reduce((a, r) => a + r.score, 0);
+  // Separate UP and DOWN patterns
+  const upPatterns = patterns.filter(r => r.dir === 'UP');
+  const dnPatterns = patterns.filter(r => r.dir === 'DOWN');
 
-  const dir: 'UP' | 'DOWN' = upScore >= dnScore ? 'UP' : 'DOWN';
-  const totalScore = Math.max(upScore, dnScore);
+  const upScore = upPatterns.reduce((a, r) => a + r.score, 0);
+  const dnScore = dnPatterns.reduce((a, r) => a + r.score, 0);
 
-  if (totalScore < minScore) return null;
+  const maxScore = Math.max(upScore, dnScore);
+  const minDirScore = Math.min(upScore, dnScore);
+  const winnerDir: 'UP' | 'DOWN' = upScore >= dnScore ? 'UP' : 'DOWN';
+  const winnerPatterns = winnerDir === 'UP' ? upPatterns : dnPatterns;
+  const loserPatterns = winnerDir === 'UP' ? dnPatterns : upPatterns;
 
-  const matchLogics = patterns.filter(r => r.dir === dir);
+  // ════════════════════════════════════════════════════════════════════
+  // CONSENSUS FILTERS — Prevent fake/noise signals
+  // ════════════════════════════════════════════════════════════════════
+
+  // FILTER 1: Minimum consensus — at least 2 patterns must agree in same direction
+  if (winnerPatterns.length < 2) return null;
+
+  // FILTER 2: Score differential — winner must be meaningfully stronger
+  // If loser score exists, winner must beat it by at least 40%
+  if (minDirScore > 0 && maxScore < minDirScore * 1.4) return null;
+
+  // FILTER 3: Contradiction penalty — if opposing patterns fire, require even higher consensus
+  if (loserPatterns.length >= 2 && winnerPatterns.length < 3) return null;
+
+  // FILTER 4: Base score threshold from user settings
+  if (maxScore < minScore) return null;
+
+  // FILTER 5: High-confidence bonus — if top pattern scores 8+, signal is strong
+  const hasHighConfidence = winnerPatterns.some(r => r.score >= 8);
+  const hasTechnicalConfirm = winnerPatterns.some(r =>
+    r.logic.startsWith('EMA_') || r.logic.startsWith('RSI_') ||
+    r.logic.startsWith('MACD_') || r.logic.startsWith('BB_')
+  );
+
+  // FILTER 6: If only weak patterns (score ≤ 5), need at least 3 agreeing
+  const strongPatterns = winnerPatterns.filter(r => r.score >= 6);
+  if (strongPatterns.length < 1 && winnerPatterns.length < 4) return null;
+
+  const matchLogics = winnerPatterns;
+
+  // Calculate final quality score (1-10)
+  let qualityScore = Math.min(10, Math.round(maxScore / 2));
+  // Boost for high-confidence pattern
+  if (hasHighConfidence && qualityScore < 10) qualityScore = Math.min(10, qualityScore + 1);
+  // Boost for technical confirmation
+  if (hasTechnicalConfirm && qualityScore < 10) qualityScore = Math.min(10, qualityScore + 1);
 
   return {
     pair,
-    dir,
-    score: Math.min(10, Math.round(totalScore / 2)),
+    dir: winnerDir,
+    score: qualityScore,
     logic: matchLogics[0].logic,
     logics: matchLogics.map(r => r.logic),
     price: ohlc[ohlc.length - 1].cl,
@@ -852,7 +892,7 @@ export function checkCandleResult(
       t.getUTCMonth() === et.getUTCMonth() &&
       t.getUTCDate() === et.getUTCDate() &&
       t.getUTCHours() === et.getUTCHours() &&
-      t.getUTCMinutes() === et.getUTCMins() &&
+      t.getUTCMinutes() === et.getUTCMinutes() &&
       c.complete
     );
   });

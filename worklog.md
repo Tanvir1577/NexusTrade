@@ -265,3 +265,30 @@ Stage Summary:
 - File: /home/z/my-project/src/components/history/HistoryPage.tsx (empty state fix)
 - File: /home/z/my-project/src/components/profile/ProfilePage.tsx (MTG color differentiation)
 - All 7 pending tasks completed
+
+---
+Task ID: 12
+Agent: Main Coordinator
+Task: Fix signal engine quality — prevent fake signals and improve consensus
+
+Work Log:
+- Fixed critical checkCandleResult bug: et.getUTCMins() → et.getUTCMinutes()
+  - The previous undo caused TypeError on every result check, blocking all WIN/LOSS/MTG tracking
+  - Engine was getting permanently stuck after first signal
+- Completely rewrote analyzeCandles() with 6-layer consensus filter system:
+  - FILTER 1: Minimum consensus — requires ≥ 2 patterns agreeing in same direction
+  - FILTER 2: Score differential — winner direction must beat loser by ≥ 40%
+  - FILTER 3: Contradiction penalty — if opposing patterns fire, requires ≥ 3 agreeing
+  - FILTER 4: Base score threshold (user's minScore setting)
+  - FILTER 5: High-confidence bonus — patterns scoring 8+ boost quality score
+  - FILTER 6: Weak pattern guard — if no strong patterns (score ≥ 6), need ≥ 4 agreeing
+- Added technical confirmation bonus (EMA, RSI, MACD, BB patterns boost quality score)
+- Increased candle fetch count from 50 to 100 for better multi-candle pattern analysis
+- ESLint passes with zero errors
+
+Stage Summary:
+- Files: signal-engine.ts, use-signal-engine.ts
+- Engine now requires multiple pattern consensus before firing signals
+- Contradictory signals (UP+DOWN) are heavily penalized or blocked
+- Result tracking fixed — WIN/LOSS/MTG now properly determined
+- Quality score now reflects consensus strength + technical confirmation

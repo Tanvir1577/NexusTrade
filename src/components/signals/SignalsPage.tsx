@@ -459,13 +459,13 @@ function RecentSignalsList() {
 
   const resultColorMap: Record<string, string> = {
     WIN: 'border-emerald-500/20 bg-emerald-500/[0.07] text-emerald-400',
-    MTG: 'border-emerald-300/20 bg-emerald-300/[0.07] text-emerald-300',
+    MTG: 'border-amber-500/20 bg-amber-500/[0.07] text-amber-400',
     LOSS: 'border-rose-500/20 bg-rose-500/[0.07] text-rose-400',
   };
 
   const resultDotColor: Record<string, string> = {
     WIN: 'bg-emerald-400',
-    MTG: 'bg-emerald-300',
+    MTG: 'bg-amber-400',
     LOSS: 'bg-rose-400',
   };
 

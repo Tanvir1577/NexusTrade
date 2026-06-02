@@ -126,8 +126,15 @@ export default function ChartPage() {
         complete: Boolean(c.complete),
       }));
       setChart(prev => {
-        const newOffset = prev.data.length === 0 ? 0 : prev.offset;
-        return { ...prev, data: mapped, offset: newOffset };
+        if (prev.data.length === 0) {
+          // First load: scroll to show latest candles on the right
+          const stepW = BASE_WIDTH + GAP;
+          const chartW = sizeRef.current.w - PRICE_AXIS_W;
+          const totalW = mapped.length * stepW;
+          const newOffset = Math.min(0, -(totalW - chartW + 10));
+          return { ...prev, data: mapped, offset: newOffset };
+        }
+        return { ...prev, data: mapped };
       });
       dirtyRef.current = true;
     } catch {
@@ -703,7 +710,13 @@ export default function ChartPage() {
   }, []);
 
   const zoomReset = useCallback(() => {
-    setChart(prev => ({ ...prev, scale: 1, offset: 0, velocity: 0 }));
+    setChart(prev => {
+      const stepW = BASE_WIDTH + GAP;
+      const chartW = sizeRef.current.w - PRICE_AXIS_W;
+      const totalW = prev.data.length * stepW;
+      const endOffset = Math.min(0, -(totalW - chartW + 10));
+      return { ...prev, scale: 1, offset: endOffset, velocity: 0 };
+    });
     dirtyRef.current = true;
   }, []);
 

@@ -5,14 +5,12 @@ import { useStore, formatPair, ALL_PAIRS } from '@/lib/store';
 import { useClock } from '@/hooks/use-clock';
 import { motion } from 'framer-motion';
 import {
-  Zap,
   TrendingUp,
   Target,
   XCircle,
   Flame,
   Activity,
   Clock,
-  ChevronUp,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -49,67 +47,56 @@ function HeroBanner() {
       variants={fadeUp}
       initial="hidden"
       animate="visible"
-      className="glass-card relative overflow-hidden p-6 sm:p-7"
+      className="glass-card relative overflow-hidden px-5 py-4 sm:px-6"
     >
       {/* Top emerald accent line */}
       <div className="absolute left-0 right-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-emerald-500/40 to-transparent" />
 
-      {/* Animated radial emerald glow — top-right */}
-      <div
-        className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full opacity-25"
-        style={{
-          background:
-            'radial-gradient(circle, rgba(16,185,129,0.4) 0%, rgba(16,185,129,0.08) 50%, transparent 70%)',
-          animation: 'hero-gradient 8s ease infinite',
-          backgroundSize: '200% 200%',
-        }}
-      />
-
       <div className="relative flex items-center justify-between">
-        {/* Left — Branding */}
-        <div className="flex items-center gap-4 sm:gap-5">
-          <div className="flex h-13 w-13 items-center justify-center rounded-[18px] bg-gradient-to-br from-emerald-500/20 to-emerald-600/5 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.25)]">
-            <Zap className="h-6 w-6 text-emerald-400" />
+        {/* Left — Session info */}
+        <div className="flex items-center gap-3 sm:gap-4">
+          <div
+            className={cn(
+              'flex items-center gap-2 rounded-full border px-3.5 py-1.5',
+              running
+                ? 'border-emerald-500/20 bg-emerald-500/10 shadow-[0_0_16px_rgba(16,185,129,0.08)]'
+                : 'border-white/[0.06] bg-white/[0.03]'
+            )}
+          >
+            <span className="relative flex h-2.5 w-2.5">
+              {running && (
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+              )}
+              <span
+                className={cn(
+                  'relative inline-flex h-2.5 w-2.5 rounded-full',
+                  running ? 'bg-emerald-400' : 'bg-rose-500'
+                )}
+              />
+            </span>
+            <span
+              className={cn(
+                'text-[11px] font-mono font-bold tracking-[0.15em]',
+                running ? 'text-emerald-400' : 'text-rose-400'
+              )}
+            >
+              {running ? 'ENGINE LIVE' : 'ENGINE OFFLINE'}
+            </span>
           </div>
-          <div>
-            <h1 className="text-[22px] font-black tracking-[0.08em] sm:text-2xl">
-              <span className="text-white">NEXUSTRADE</span>{' '}
-              <span className="text-emerald-400">PRO</span>
-            </h1>
-            <p className="mt-0.5 text-[10px] font-mono tracking-[0.25em] text-muted-foreground/40">
+
+          <div className="hidden items-center gap-2 sm:flex">
+            <span className="text-[10px] font-mono tracking-[0.15em] text-muted-foreground/35">
+              SESSION TIME
+            </span>
+            <span className="text-[12px] font-mono font-semibold tabular-nums text-white/70">
               {fullLocal}
-            </p>
+            </span>
           </div>
         </div>
 
-        {/* Right — Status Pill */}
-        <div
-          className={cn(
-            'flex items-center gap-2.5 rounded-full border px-4 py-2',
-            running
-              ? 'border-emerald-500/20 bg-emerald-500/10 shadow-[0_0_16px_rgba(16,185,129,0.08)]'
-              : 'border-white/[0.06] bg-white/[0.03]'
-          )}
-        >
-          <span className="relative flex h-2.5 w-2.5">
-            {running && (
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-            )}
-            <span
-              className={cn(
-                'relative inline-flex h-2.5 w-2.5 rounded-full',
-                running ? 'bg-emerald-400' : 'bg-rose-500'
-              )}
-            />
-          </span>
-          <span
-            className={cn(
-              'text-[11px] font-mono font-bold tracking-[0.15em]',
-              running ? 'text-emerald-400' : 'text-rose-400'
-            )}
-          >
-            {running ? 'LIVE' : 'OFFLINE'}
-          </span>
+        {/* Right — Quick summary */}
+        <div className="text-[10px] font-mono tracking-[0.12em] text-muted-foreground/30">
+          BINARY SIGNALS &middot; M1 EXPIRY
         </div>
       </div>
     </motion.div>
@@ -136,10 +123,10 @@ function PerformanceStats() {
       label: 'MTG',
       value: stats.mtg,
       icon: Target,
-      textColor: 'text-emerald-300',
-      iconBg: 'from-emerald-300/15 to-emerald-300/5',
-      shadow: 'shadow-[0_4px_24px_-4px_rgba(110,231,183,0.12)]',
-      borderAccent: 'border-emerald-300/[0.08]',
+      textColor: 'text-amber-400',
+      iconBg: 'from-amber-500/15 to-amber-500/5',
+      shadow: 'shadow-[0_4px_24px_-4px_rgba(245,158,11,0.12)]',
+      borderAccent: 'border-amber-500/[0.08]',
     },
     {
       label: 'LOSS',
@@ -177,7 +164,7 @@ function PerformanceStats() {
                   card.label === 'WIN'
                     ? 'radial-gradient(ellipse at 50% -20%, rgba(16,185,129,0.15) 0%, transparent 70%)'
                     : card.label === 'MTG'
-                      ? 'radial-gradient(ellipse at 50% -20%, rgba(110,231,183,0.12) 0%, transparent 70%)'
+                      ? 'radial-gradient(ellipse at 50% -20%, rgba(245,158,11,0.12) 0%, transparent 70%)'
                       : 'radial-gradient(ellipse at 50% -20%, rgba(244,63,94,0.12) 0%, transparent 70%)',
               }}
             />
@@ -457,10 +444,10 @@ function WinRateCard() {
               </span>
             </div>
             <div className="flex items-center gap-1.5">
-              <div className="h-2 w-2 rounded-full bg-emerald-300" />
+              <div className="h-2 w-2 rounded-full bg-amber-500" />
               <span className="text-[11px] font-mono text-muted-foreground/50">
                 M{' '}
-                <span className="font-bold text-emerald-300">
+                <span className="font-bold text-amber-400">
                   {stats.mtg}
                 </span>
               </span>
@@ -556,12 +543,12 @@ function SessionSignalFlow() {
             {stats.win}
           </span>
         </div>
-        <div className="flex items-center gap-2 rounded-lg bg-emerald-300/[0.06] px-3 py-2">
-          <div className="h-2.5 w-2.5 rounded-sm bg-emerald-300" />
+        <div className="flex items-center gap-2 rounded-lg bg-amber-500/[0.06] px-3 py-2">
+          <div className="h-2.5 w-2.5 rounded-sm bg-amber-500" />
           <span className="text-[10px] font-mono tracking-wider text-muted-foreground/45">
             MTG
           </span>
-          <span className="ml-auto font-mono text-xs font-bold tabular-nums text-emerald-300">
+          <span className="ml-auto font-mono text-xs font-bold tabular-nums text-amber-400">
             {stats.mtg}
           </span>
         </div>
@@ -593,7 +580,7 @@ function SessionSignalFlow() {
               block.result === 'WIN'
                 ? 'bg-emerald-500/70'
                 : block.result === 'MTG'
-                  ? 'bg-emerald-300/70'
+                  ? 'bg-amber-500/70'
                   : 'bg-rose-500/70';
 
             return (

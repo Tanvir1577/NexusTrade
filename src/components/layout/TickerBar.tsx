@@ -21,27 +21,31 @@ function TickerRow({ item }: { item: TickerItem }) {
   const decimals = item.pair.includes('JPY') ? 3 : 5;
 
   return (
-    <div className="flex shrink-0 items-center gap-1.5 px-3">
-      <span className="text-[11px] font-mono tracking-wide text-white/35">
+    <div className="flex shrink-0 items-center gap-2 px-4">
+      <span className="text-[11px] font-mono tracking-wide text-white/40">
         {item.display}
       </span>
-      <span
-        className={cn(
-          'text-[11px] font-mono font-semibold tabular-nums tracking-wide',
-          isUp ? 'text-emerald-400' : 'text-rose-500',
-        )}
-      >
-        {item.price > 0
-          ? item.price.toFixed(decimals)
-          : '—'.repeat(decimals + 1)}
-      </span>
-      {item.price > 0 && (
-        <span className={cn(isUp ? 'text-emerald-400' : 'text-rose-500')}>
-          {isUp ? (
-            <ChevronUp className="h-2.5 w-2.5" />
-          ) : (
-            <ChevronDown className="h-2.5 w-2.5" />
-          )}
+      {item.price > 0 ? (
+        <>
+          <span
+            className={cn(
+              'text-[11px] font-mono font-semibold tabular-nums tracking-wide',
+              isUp ? 'text-emerald-400' : 'text-rose-500',
+            )}
+          >
+            {item.price.toFixed(decimals)}
+          </span>
+          <span className={cn(isUp ? 'text-emerald-400/70' : 'text-rose-500/70')}>
+            {isUp ? (
+              <ChevronUp className="h-2.5 w-2.5" />
+            ) : (
+              <ChevronDown className="h-2.5 w-2.5" />
+            )}
+          </span>
+        </>
+      ) : (
+        <span className="text-[11px] font-mono tabular-nums text-white/15">
+          ···
         </span>
       )}
     </div>
@@ -52,20 +56,16 @@ export function TickerBar() {
   const lastPrices = useStore((s) => s.lastPrices);
   const setLastPrice = useStore((s) => s.setLastPrice);
   const prevPricesRef = useRef<Record<string, number>>({});
-  const [prevSnapshot, setPrevSnapshot] = useState<Record<string, number>>(
-    {},
-  );
+  const [prevSnapshot, setPrevSnapshot] = useState<Record<string, number>>({});
+  const [tick, setTick] = useState(0);
 
-  // Poll prices every 5 seconds — capture a snapshot BEFORE new fetch
+  // Poll prices every 8 seconds
   useEffect(() => {
     let mounted = true;
 
     async function poll() {
-      // Snapshot current store prices before fetching new ones
-      if (mounted) {
-        const currentPrices = { ...lastPrices };
-        prevPricesRef.current = currentPrices;
-      }
+      // Snapshot current prices BEFORE fetching
+      prevPricesRef.current = { ...(mounted ? lastPrices : {}) };
 
       for (const pair of ALL_PAIRS) {
         if (!mounted) break;
@@ -75,23 +75,24 @@ export function TickerBar() {
             setLastPrice(pair, price);
           }
         } catch {
-          // skip failed pair
+          // skip
         }
       }
 
-      // After all pairs fetched, set the snapshot for direction comparison
+      // Set snapshot AFTER fetch completes
       if (mounted) {
         setPrevSnapshot((prev) => ({ ...prev, ...prevPricesRef.current }));
+        setTick((t) => t + 1); // force re-render
       }
     }
 
     poll();
-    const interval = setInterval(poll, 5000);
+    const interval = setInterval(poll, 8000);
     return () => {
       mounted = false;
       clearInterval(interval);
     };
-  }, [setLastPrice, lastPrices]);
+  }, [setLastPrice, lastPrices, tick]);
 
   const items: TickerItem[] = useMemo(() => {
     return ALL_PAIRS.map((pair) => ({
@@ -107,7 +108,10 @@ export function TickerBar() {
 
   return (
     <div className="relative h-9 overflow-hidden border-b border-white/[0.04] bg-[#050810]/80">
-      <div className="flex h-full w-max items-center animate-ticker">
+      <div
+        className="flex h-full w-max items-center"
+        style={{ animation: 'ticker-scroll 120s linear infinite' }}
+      >
         {duplicated.map((item, i) => (
           <TickerRow key={`${item.pair}-${i}`} item={item} />
         ))}

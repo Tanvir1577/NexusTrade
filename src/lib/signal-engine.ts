@@ -49,6 +49,64 @@ function ema(arr: number[], period: number): number {
   return e;
 }
 
+// ─── Helper functions for pattern detection ──────────────────────────────────
+
+function candleBody(c: OHLC): number {
+  return Math.abs(c.cl - c.o);
+}
+
+function candleRange(c: OHLC): number {
+  return c.h - c.l;
+}
+
+function upperShadow(c: OHLC): number {
+  return c.h - Math.max(c.cl, c.o);
+}
+
+function lowerShadow(c: OHLC): number {
+  return Math.min(c.cl, c.o) - c.l;
+}
+
+function isBullish(c: OHLC): boolean {
+  return c.cl > c.o;
+}
+
+function isBearish(c: OHLC): boolean {
+  return c.cl < c.o;
+}
+
+function isDoji(c: OHLC): boolean {
+  const r = candleRange(c);
+  return r > 0 && candleBody(c) / r < 0.1;
+}
+
+function pipTolerance(price: number): number {
+  return price > 50 ? 0.01 : 0.0001;
+}
+
+function isUptrend(d: OHLC[], lookback: number): boolean {
+  if (d.length < lookback) return false;
+  return d[d.length - 1].cl > d[d.length - lookback].cl;
+}
+
+function isDowntrend(d: OHLC[], lookback: number): boolean {
+  if (d.length < lookback) return false;
+  return d[d.length - 1].cl < d[d.length - lookback].cl;
+}
+
+function isLongCandle(c: OHLC): boolean {
+  const b = candleBody(c);
+  const r = candleRange(c);
+  return r > 0 && b > r * 0.6;
+}
+
+function isSmallCandle(c: OHLC): boolean {
+  const r = candleRange(c);
+  return r > 0 && candleBody(c) < r * 0.3;
+}
+
+// ─── MASSIVE Pattern Detection Engine ─────────────────────────────────────────
+
 function detectPatterns(c: OHLC[]): PatternResult[] {
   const results: PatternResult[] = [];
   const len = c.length;
@@ -62,6 +120,9 @@ function detectPatterns(c: OHLC[]): PatternResult[] {
   const dLen = d.length;
   const cur = d[dLen - 1];
   const prev = d[dLen - 2];
+  const pip = pipTolerance(cur.cl);
+
+  // ── ORIGINAL PATTERNS (kept exactly as-is) ──────────────────────────────
 
   // 1. ENGULFING
   const bP = Math.abs(prev.cl - prev.o);
@@ -199,6 +260,527 @@ function detectPatterns(c: OHLC[]): PatternResult[] {
     }
     if (nose > body * 3 && nose > tail * 2 && body < range * 0.25) {
       results.push({ logic: 'PIN_BAR', dir: 'DOWN', score: 8 });
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // NEW PATTERNS — Single Candle Reversals
+  // ══════════════════════════════════════════════════════════════════════
+
+  // ── INVERTED_HAMMER (bullish, score 6) ──
+  // Small body near bottom, long upper shadow, little/no lower shadow
+  if (range > 0) {
+    const invBody = candleBody(cur);
+    const invUpper = upperShadow(cur);
+    const invLower = lowerShadow(cur);
+    if (
+      invBody < range * 0.3 &&
+      invUpper > invBody * 2 &&
+      invLower < invBody * 0.5 &&
+      invUpper > range * 0.5
+    ) {
+      results.push({ logic: 'INVERTED_HAMMER', dir: 'UP', score: 6 });
+    }
+  }
+
+  // ── HANGING_MAN (bearish, score 6) ──
+  // Small body at top, long lower shadow (≥2x body), appears after uptrend
+  if (range > 0 && isDowntrend(d, 6) === false) {
+    const hmBody = candleBody(cur);
+    const hmLower = lowerShadow(cur);
+    const hmUpper = upperShadow(cur);
+    if (
+      hmBody < range * 0.3 &&
+      hmLower > hmBody * 2 &&
+      hmUpper < hmBody * 0.5 &&
+      hmLower > range * 0.5
+    ) {
+      results.push({ logic: 'HANGING_MAN', dir: 'DOWN', score: 6 });
+    }
+  }
+
+  // ── DRAGONFLY_DOJI (bullish, score 6) ──
+  // Doji-like with long lower shadow, no upper shadow
+  if (range > 0 && body / range < 0.1) {
+    const ddUpper = upperShadow(cur);
+    const ddLower = lowerShadow(cur);
+    if (ddLower > range * 0.6 && ddUpper < range * 0.05) {
+      results.push({ logic: 'DRAGONFLY_DOJI', dir: 'UP', score: 6 });
+    }
+  }
+
+  // ── GRAVESTONE_DOJI (bearish, score 6) ──
+  // Doji-like with long upper shadow, no lower shadow
+  if (range > 0 && body / range < 0.1) {
+    const gsUpper = upperShadow(cur);
+    const gsLower = lowerShadow(cur);
+    if (gsUpper > range * 0.6 && gsLower < range * 0.05) {
+      results.push({ logic: 'GRAVESTONE_DOJI', dir: 'DOWN', score: 6 });
+    }
+  }
+
+  // ── BULLISH_MARUBOZU (momentum, score 7) ──
+  // Long bullish body, very small/no wicks (wick < 5% of range)
+  if (range > 0 && isBullish(cur)) {
+    const totalWick = upperShadow(cur) + lowerShadow(cur);
+    if (body / range > 0.9 && totalWick / range < 0.05) {
+      results.push({ logic: 'BULLISH_MARUBOZU', dir: 'UP', score: 7 });
+    }
+  }
+
+  // ── BEARISH_MARUBOZU (momentum, score 7) ──
+  // Long bearish body, very small/no wicks
+  if (range > 0 && isBearish(cur)) {
+    const totalWick = upperShadow(cur) + lowerShadow(cur);
+    if (body / range > 0.9 && totalWick / range < 0.05) {
+      results.push({ logic: 'BEARISH_MARUBOZU', dir: 'DOWN', score: 7 });
+    }
+  }
+
+  // ── SPINNING_TOP (indecision → trend continuation, score 4) ──
+  // Small body (<30% of range), roughly equal upper/lower shadows
+  if (range > 0) {
+    const stBody = candleBody(cur);
+    const stUpper = upperShadow(cur);
+    const stLower = lowerShadow(cur);
+    if (
+      stBody / range < 0.3 &&
+      stUpper > range * 0.2 &&
+      stLower > range * 0.2 &&
+      Math.abs(stUpper - stLower) / Math.max(stUpper, stLower) < 0.3
+    ) {
+      // In downtrend context → expect continuation up (reversal from indecision)
+      // In uptrend context → expect continuation down
+      if (isDowntrend(d, 8)) {
+        results.push({ logic: 'SPINNING_TOP', dir: 'UP', score: 4 });
+      }
+      if (isUptrend(d, 8)) {
+        results.push({ logic: 'SPINNING_TOP', dir: 'DOWN', score: 4 });
+      }
+    }
+  }
+
+  // ── BULLISH_BELT_HOLD (bullish, score 6) ──
+  // Opens at/near low, closes at/near high, little/no lower shadow
+  if (range > 0 && isBullish(cur)) {
+    const bbUpper = upperShadow(cur);
+    const bbLower = lowerShadow(cur);
+    if (
+      bbLower < range * 0.05 &&
+      bbUpper > range * 0.1 &&
+      body / range > 0.7
+    ) {
+      results.push({ logic: 'BULLISH_BELT_HOLD', dir: 'UP', score: 6 });
+    }
+  }
+
+  // ── BEARISH_BELT_HOLD (bearish, score 6) ──
+  // Opens at/near high, closes at/near low, little/no upper shadow
+  if (range > 0 && isBearish(cur)) {
+    const brUpper = upperShadow(cur);
+    const brLower = lowerShadow(cur);
+    if (
+      brUpper < range * 0.05 &&
+      brLower > range * 0.1 &&
+      body / range > 0.7
+    ) {
+      results.push({ logic: 'BEARISH_BELT_HOLD', dir: 'DOWN', score: 6 });
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // NEW PATTERNS — Two-Candle Reversals
+  // ══════════════════════════════════════════════════════════════════════
+
+  if (dLen >= 2) {
+    const p = prev; // alias for clarity
+    const q = cur;
+
+    // ── PIERCING_LINE (bullish, score 7) ──
+    // Bearish prev followed by bullish cur that opens below prev close,
+    // closes above 50% of prev body
+    if (isBearish(p) && isBullish(q)) {
+      const pBody = p.o - p.cl; // bearish body size
+      if (q.o < p.cl && q.cl > p.cl + pBody * 0.5 && q.cl < p.o) {
+        results.push({ logic: 'PIERCING_LINE', dir: 'UP', score: 7 });
+      }
+    }
+
+    // ── DARK_CLOUD_COVER (bearish, score 7) ──
+    // Bullish prev followed by bearish cur that opens above prev high,
+    // closes below midpoint of prev body
+    if (isBullish(p) && isBearish(q)) {
+      const pBody = p.cl - p.o; // bullish body size
+      const pMid = p.o + pBody * 0.5;
+      if (q.o > p.h && q.cl < pMid && q.cl > p.o) {
+        results.push({ logic: 'DARK_CLOUD_COVER', dir: 'DOWN', score: 7 });
+      }
+    }
+
+    // ── BULLISH_HARAMI (bullish, score 6) ──
+    // Small bullish candle fully inside previous large bearish body
+    if (isBearish(p) && isBullish(q)) {
+      const pBodySize = candleBody(p);
+      const qBodySize = candleBody(q);
+      if (
+        pBodySize > 0 &&
+        qBodySize < pBodySize * 0.6 &&
+        q.o > p.cl &&
+        q.cl < p.o
+      ) {
+        results.push({ logic: 'BULLISH_HARAMI', dir: 'UP', score: 6 });
+      }
+    }
+
+    // ── BEARISH_HARAMI (bearish, score 6) ──
+    // Small bearish candle fully inside previous large bullish body
+    if (isBullish(p) && isBearish(q)) {
+      const pBodySize = candleBody(p);
+      const qBodySize = candleBody(q);
+      if (
+        pBodySize > 0 &&
+        qBodySize < pBodySize * 0.6 &&
+        q.o < p.cl &&
+        q.cl > p.o
+      ) {
+        results.push({ logic: 'BEARISH_HARAMI', dir: 'DOWN', score: 6 });
+      }
+    }
+
+    // ── HARAMI_CROSS_BULL (bullish, score 6) ──
+    // Doji candle fully inside previous bearish body
+    if (isBearish(p) && isDoji(q)) {
+      if (Math.max(q.o, q.cl) < p.o && Math.min(q.o, q.cl) > p.cl) {
+        results.push({ logic: 'HARAMI_CROSS_BULL', dir: 'UP', score: 6 });
+      }
+    }
+
+    // ── HARAMI_CROSS_BEAR (bearish, score 6) ──
+    // Doji candle fully inside previous bullish body
+    if (isBullish(p) && isDoji(q)) {
+      if (Math.max(q.o, q.cl) < p.cl && Math.min(q.o, q.cl) > p.o) {
+        results.push({ logic: 'HARAMI_CROSS_BEAR', dir: 'DOWN', score: 6 });
+      }
+    }
+
+    // ── TWEEZER_BOTTOM (bullish, score 6) ──
+    // Two candles with approximately equal lows, second candle bullish
+    if (isBullish(q) && Math.abs(p.l - q.l) < pip) {
+      results.push({ logic: 'TWEEZER_BOTTOM', dir: 'UP', score: 6 });
+    }
+
+    // ── TWEEZER_TOP (bearish, score 6) ──
+    // Two candles with approximately equal highs, second candle bearish
+    if (isBearish(q) && Math.abs(p.h - q.h) < pip) {
+      results.push({ logic: 'TWEEZER_TOP', dir: 'DOWN', score: 6 });
+    }
+
+    // ── BULLISH_KICKER (bullish, score 8) ──
+    // Bearish prev immediately followed by bullish cur that opens above prev open, gaps up
+    if (isBearish(p) && isBullish(q) && q.o > p.o && (q.o - p.o) >= pip) {
+      results.push({ logic: 'BULLISH_KICKER', dir: 'UP', score: 8 });
+    }
+
+    // ── BEARISH_KICKER (bearish, score 8) ──
+    // Bullish prev immediately followed by bearish cur that opens below prev open, gaps down
+    if (isBullish(p) && isBearish(q) && q.o < p.o && (p.o - q.o) >= pip) {
+      results.push({ logic: 'BEARISH_KICKER', dir: 'DOWN', score: 8 });
+    }
+
+    // ── MEETING_LINES_BULL (bullish, score 6) ──
+    // Bearish prev followed by bullish cur that closes at same level as prev's close
+    if (isBearish(p) && isBullish(q) && Math.abs(q.cl - p.cl) < pip) {
+      results.push({ logic: 'MEETING_LINES_BULL', dir: 'UP', score: 6 });
+    }
+
+    // ── MEETING_LINES_BEAR (bearish, score 6) ──
+    // Bullish prev followed by bearish cur that closes at same level as prev's close
+    if (isBullish(p) && isBearish(q) && Math.abs(q.cl - p.cl) < pip) {
+      results.push({ logic: 'MEETING_LINES_BEAR', dir: 'DOWN', score: 6 });
+    }
+
+    // ── BULLISH_SEPARATING_LINES (bullish, score 5) ──
+    // Bearish prev followed by bullish cur opening at same level as prev's open
+    if (isBearish(p) && isBullish(q) && Math.abs(q.o - p.o) < pip) {
+      results.push({ logic: 'BULLISH_SEPARATING_LINES', dir: 'UP', score: 5 });
+    }
+
+    // ── BEARISH_SEPARATING_LINES (bearish, score 5) ──
+    // Bullish prev followed by bearish cur opening at same level as prev's open
+    if (isBullish(p) && isBearish(q) && Math.abs(q.o - p.o) < pip) {
+      results.push({ logic: 'BEARISH_SEPARATING_LINES', dir: 'DOWN', score: 5 });
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // NEW PATTERNS — Three-Candle Reversals
+  // ══════════════════════════════════════════════════════════════════════
+
+  if (dLen >= 3) {
+    const c1 = d[dLen - 3]; // oldest of the three
+    const c2 = d[dLen - 2]; // middle
+    const c3 = d[dLen - 1]; // newest (same as cur)
+
+    // ── MORNING_STAR (bullish, score 8) ──
+    // Long bearish, small body candle, long bullish
+    // Third candle body ≥ first candle body
+    if (isBearish(c1) && isLongCandle(c1) && isSmallCandle(c2) && isBullish(c3) && isLongCandle(c3)) {
+      if (c2.l > c1.l && candleBody(c3) >= candleBody(c1) * 0.5) {
+        results.push({ logic: 'MORNING_STAR', dir: 'UP', score: 8 });
+      }
+    }
+
+    // ── EVENING_STAR (bearish, score 8) ──
+    // Long bullish, small body candle, long bearish
+    if (isBullish(c1) && isLongCandle(c1) && isSmallCandle(c2) && isBearish(c3) && isLongCandle(c3)) {
+      if (c2.h < c1.h && candleBody(c3) >= candleBody(c1) * 0.5) {
+        results.push({ logic: 'EVENING_STAR', dir: 'DOWN', score: 8 });
+      }
+    }
+
+    // ── MORNING_DOJI_STAR (bullish, score 8) ──
+    // Morning star but middle candle is doji
+    if (isBearish(c1) && isLongCandle(c1) && isDoji(c2) && isBullish(c3) && isLongCandle(c3)) {
+      if (c2.l > c1.l && candleBody(c3) >= candleBody(c1) * 0.5) {
+        results.push({ logic: 'MORNING_DOJI_STAR', dir: 'UP', score: 8 });
+      }
+    }
+
+    // ── EVENING_DOJI_STAR (bearish, score 8) ──
+    // Evening star but middle candle is doji
+    if (isBullish(c1) && isLongCandle(c1) && isDoji(c2) && isBearish(c3) && isLongCandle(c3)) {
+      if (c2.h < c1.h && candleBody(c3) >= candleBody(c1) * 0.5) {
+        results.push({ logic: 'EVENING_DOJI_STAR', dir: 'DOWN', score: 8 });
+      }
+    }
+
+    // ── THREE_WHITE_SOLDIERS (bullish, score 8) ──
+    // Three consecutive long bullish candles, each opens within prev body, closes higher
+    if (isBullish(c1) && isBullish(c2) && isBullish(c3)) {
+      if (
+        isLongCandle(c1) && isLongCandle(c2) && isLongCandle(c3) &&
+        c2.o >= c1.o && c2.o <= c1.cl &&
+        c3.o >= c2.o && c3.o <= c2.cl &&
+        c3.cl > c2.cl && c2.cl > c1.cl
+      ) {
+        results.push({ logic: 'THREE_WHITE_SOLDIERS', dir: 'UP', score: 8 });
+      }
+    }
+
+    // ── THREE_BLACK_CROWS (bearish, score 8) ──
+    // Three consecutive long bearish candles, each opens within prev body, closes lower
+    if (isBearish(c1) && isBearish(c2) && isBearish(c3)) {
+      if (
+        isLongCandle(c1) && isLongCandle(c2) && isLongCandle(c3) &&
+        c2.o <= c1.o && c2.o >= c1.cl &&
+        c3.o <= c2.o && c3.o >= c2.cl &&
+        c3.cl < c2.cl && c2.cl < c1.cl
+      ) {
+        results.push({ logic: 'THREE_BLACK_CROWS', dir: 'DOWN', score: 8 });
+      }
+    }
+
+    // ── THREE_INSIDE_UP (bullish, score 7) ──
+    // Large bearish c1, small bullish c2 inside it, third bullish c3 closes above c1's open
+    if (isBearish(c1) && isLongCandle(c1) && isBullish(c2) && isBullish(c3)) {
+      if (
+        c2.o > c1.cl && c2.cl < c1.o &&
+        c3.cl > c1.o
+      ) {
+        results.push({ logic: 'THREE_INSIDE_UP', dir: 'UP', score: 7 });
+      }
+    }
+
+    // ── THREE_INSIDE_DOWN (bearish, score 7) ──
+    // Large bullish c1, small bearish c2 inside it, third bearish c3 closes below c1's open
+    if (isBullish(c1) && isLongCandle(c1) && isBearish(c2) && isBearish(c3)) {
+      if (
+        c2.o < c1.cl && c2.cl > c1.o &&
+        c3.cl < c1.o
+      ) {
+        results.push({ logic: 'THREE_INSIDE_DOWN', dir: 'DOWN', score: 7 });
+      }
+    }
+
+    // ── THREE_OUTSIDE_UP (bullish, score 7) ──
+    // Bearish c1, bullish c2 engulfing it, third bullish c3 closes higher
+    if (isBearish(c1) && isBullish(c2) && isBullish(c3)) {
+      const c1Body = candleBody(c1);
+      const c2Body = candleBody(c2);
+      if (
+        c2Body > c1Body &&
+        c2.o <= c1.cl && c2.cl >= c1.o &&
+        c3.cl > c2.cl
+      ) {
+        results.push({ logic: 'THREE_OUTSIDE_UP', dir: 'UP', score: 7 });
+      }
+    }
+
+    // ── THREE_OUTSIDE_DOWN (bearish, score 7) ──
+    // Bullish c1, bearish c2 engulfing it, third bearish c3 closes lower
+    if (isBullish(c1) && isBearish(c2) && isBearish(c3)) {
+      const c1Body = candleBody(c1);
+      const c2Body = candleBody(c2);
+      if (
+        c2Body > c1Body &&
+        c2.o >= c1.cl && c2.cl <= c1.o &&
+        c3.cl < c2.cl
+      ) {
+        results.push({ logic: 'THREE_OUTSIDE_DOWN', dir: 'DOWN', score: 7 });
+      }
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // NEW PATTERNS — Multi-Candle Patterns
+  // ══════════════════════════════════════════════════════════════════════
+
+  // ── RISING_THREE_METHODS (bullish continuation, score 6) ──
+  // Long bullish, 3 small bearish within range, another long bullish closing above first high
+  if (dLen >= 5) {
+    const m1 = d[dLen - 5];
+    const m2 = d[dLen - 4];
+    const m3 = d[dLen - 3];
+    const m4 = d[dLen - 2];
+    const m5 = d[dLen - 1];
+
+    if (
+      isBullish(m1) && isLongCandle(m1) &&
+      isBearish(m2) && !isLongCandle(m2) &&
+      isBearish(m3) && !isLongCandle(m3) &&
+      isBearish(m4) && !isLongCandle(m4) &&
+      m2.l >= m1.l && m2.h <= m1.h &&
+      m3.l >= m1.l && m3.h <= m1.h &&
+      m4.l >= m1.l && m4.h <= m1.h &&
+      isBullish(m5) && isLongCandle(m5) &&
+      m5.cl > m1.h
+    ) {
+      results.push({ logic: 'RISING_THREE_METHODS', dir: 'UP', score: 6 });
+    }
+  }
+
+  // ── FALLING_THREE_METHODS (bearish continuation, score 6) ──
+  // Long bearish, 3 small bullish within range, another long bearish closing below first low
+  if (dLen >= 5) {
+    const m1 = d[dLen - 5];
+    const m2 = d[dLen - 4];
+    const m3 = d[dLen - 3];
+    const m4 = d[dLen - 2];
+    const m5 = d[dLen - 1];
+
+    if (
+      isBearish(m1) && isLongCandle(m1) &&
+      isBullish(m2) && !isLongCandle(m2) &&
+      isBullish(m3) && !isLongCandle(m3) &&
+      isBullish(m4) && !isLongCandle(m4) &&
+      m2.l >= m1.l && m2.h <= m1.h &&
+      m3.l >= m1.l && m3.h <= m1.h &&
+      m4.l >= m1.l && m4.h <= m1.h &&
+      isBearish(m5) && isLongCandle(m5) &&
+      m5.cl < m1.l
+    ) {
+      results.push({ logic: 'FALLING_THREE_METHODS', dir: 'DOWN', score: 6 });
+    }
+  }
+
+  // ── THREE_LINE_STRIKE_BULL (bullish, score 6) ──
+  // Three bullish candles followed by long bearish candle
+  // Expect uptrend continuation (the bearish is a pullback)
+  if (dLen >= 4) {
+    const s1 = d[dLen - 4];
+    const s2 = d[dLen - 3];
+    const s3 = d[dLen - 2];
+    const s4 = d[dLen - 1];
+
+    if (
+      isBullish(s1) && isBullish(s2) && isBullish(s3) &&
+      s2.cl > s1.cl && s3.cl > s2.cl &&
+      isBearish(s4) && isLongCandle(s4) &&
+      s4.cl > s1.cl && // doesn't erase the entire move
+      s4.o > s3.cl
+    ) {
+      results.push({ logic: 'THREE_LINE_STRIKE_BULL', dir: 'UP', score: 6 });
+    }
+  }
+
+  // ── THREE_LINE_STRIKE_BEAR (bearish, score 6) ──
+  // Three bearish candles followed by long bullish
+  // Expect downtrend continuation
+  if (dLen >= 4) {
+    const s1 = d[dLen - 4];
+    const s2 = d[dLen - 3];
+    const s3 = d[dLen - 2];
+    const s4 = d[dLen - 1];
+
+    if (
+      isBearish(s1) && isBearish(s2) && isBearish(s3) &&
+      s2.cl < s1.cl && s3.cl < s2.cl &&
+      isBullish(s4) && isLongCandle(s4) &&
+      s4.cl < s1.cl &&
+      s4.o < s3.cl
+    ) {
+      results.push({ logic: 'THREE_LINE_STRIKE_BEAR', dir: 'DOWN', score: 6 });
+    }
+  }
+
+  // ── LADDER_BOTTOM (bullish, score 7) ──
+  // Three long bearish, small candle, long bullish closing above third bearish high
+  if (dLen >= 5) {
+    const lb1 = d[dLen - 5];
+    const lb2 = d[dLen - 4];
+    const lb3 = d[dLen - 3];
+    const lb4 = d[dLen - 2];
+    const lb5 = d[dLen - 1];
+
+    if (
+      isBearish(lb1) && isLongCandle(lb1) &&
+      isBearish(lb2) && isLongCandle(lb2) &&
+      isBearish(lb3) && isLongCandle(lb3) &&
+      lb2.cl < lb1.cl && lb3.cl < lb2.cl &&
+      isSmallCandle(lb4) &&
+      isBullish(lb5) && isLongCandle(lb5) &&
+      lb5.cl > lb3.h
+    ) {
+      results.push({ logic: 'LADDER_BOTTOM', dir: 'UP', score: 7 });
+    }
+  }
+
+  // ── BULLISH_ABANDONED_BABY (bullish, score 8) ──
+  // Long bearish, doji gaps down, long bullish gaps up
+  // (gaps may be rare in forex, use small gap threshold)
+  if (dLen >= 3) {
+    const ab1 = d[dLen - 3];
+    const ab2 = d[dLen - 2];
+    const ab3 = d[dLen - 1];
+
+    if (
+      isBearish(ab1) && isLongCandle(ab1) &&
+      isDoji(ab2) &&
+      isBullish(ab3) && isLongCandle(ab3) &&
+      ab2.l < ab1.l && ab2.h < ab1.cl && // doji gaps down from bearish
+      ab3.l > ab2.l && ab3.o > ab2.h &&   // bullish gaps up from doji
+      ab3.cl > ab1.cl - candleBody(ab1) * 0.5 // closes well into bearish body
+    ) {
+      results.push({ logic: 'BULLISH_ABANDONED_BABY', dir: 'UP', score: 8 });
+    }
+  }
+
+  // ── BEARISH_ABANDONED_BABY (bearish, score 8) ──
+  // Long bullish, doji gaps up, long bearish gaps down
+  if (dLen >= 3) {
+    const ab1 = d[dLen - 3];
+    const ab2 = d[dLen - 2];
+    const ab3 = d[dLen - 1];
+
+    if (
+      isBullish(ab1) && isLongCandle(ab1) &&
+      isDoji(ab2) &&
+      isBearish(ab3) && isLongCandle(ab3) &&
+      ab2.h > ab1.h && ab2.l > ab1.cl && // doji gaps up from bullish
+      ab3.h < ab2.h && ab3.o < ab2.l &&   // bearish gaps down from doji
+      ab3.cl < ab1.cl + candleBody(ab1) * 0.5 // closes well into bullish body
+    ) {
+      results.push({ logic: 'BEARISH_ABANDONED_BABY', dir: 'DOWN', score: 8 });
     }
   }
 

@@ -25,7 +25,7 @@ export function BottomNav() {
   const setCurrentTab = useStore((s) => s.setCurrentTab);
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/[0.08] bg-[#080d17]/96 backdrop-blur-xl pb-safe lg:hidden">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-white/[0.04] bg-[#070b14]/96 backdrop-blur-2xl pb-safe lg:hidden">
       <div className="flex h-14 items-center justify-around">
         {TABS.map((tab) => {
           const isActive = currentTab === tab.id;
@@ -36,17 +36,29 @@ export function BottomNav() {
               key={tab.id}
               onClick={() => setCurrentTab(tab.id)}
               className={cn(
-                'relative flex flex-1 flex-col items-center justify-center gap-0.5 transition-colors',
-                isActive ? 'text-emerald-400' : 'text-muted-foreground/50'
+                'relative flex flex-1 flex-col items-center justify-center gap-0.5 transition-colors duration-200',
+                isActive ? 'text-emerald-400' : 'text-white/30',
               )}
             >
               {/* Active top accent bar */}
               {isActive && (
-                <span className="absolute -top-[1px] left-1/2 h-0.5 w-8 -translate-x-1/2 rounded-full bg-emerald-400" />
+                <span
+                  className="absolute -top-px left-1/2 h-[2px] w-8 -translate-x-1/2 rounded-full bg-emerald-400"
+                  style={{
+                    boxShadow: '0 0 8px rgba(16,185,129,0.5), 0 0 20px rgba(16,185,129,0.2)',
+                  }}
+                />
               )}
 
-              <Icon className={cn('h-5 w-5', isActive && 'drop-shadow-[0_0_6px_rgba(16,185,129,0.4)]')} />
-              <span className="text-[9px] font-mono font-semibold tracking-wider">{tab.label}</span>
+              <Icon
+                className={cn(
+                  'h-[20px] w-[20px] transition-all duration-200',
+                  isActive && 'drop-shadow-[0_0_8px_rgba(16,185,129,0.5)]',
+                )}
+              />
+              <span className="text-[9px] font-mono font-semibold tracking-[0.14em]">
+                {tab.label}
+              </span>
             </button>
           );
         })}

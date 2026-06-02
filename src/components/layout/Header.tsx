@@ -10,21 +10,33 @@ export function Header() {
   const running = useStore((s) => s.running);
 
   return (
-    <header className="sticky top-0 z-40 h-14 border-b border-white/[0.06] bg-[#080d17]/85 backdrop-blur-xl">
+    <header className="sticky top-0 z-50 h-14 border-b border-white/[0.04] bg-[#070b14]/90 backdrop-blur-2xl">
       <div className="flex h-full items-center justify-between px-4 lg:px-6">
-        {/* Left: Logo */}
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/15 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.25)]">
-            <Zap className="h-4 w-4 text-emerald-400" />
+        {/* ── Left: Brand ── */}
+        <div className="flex items-center gap-3">
+          <div
+            className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/10"
+            style={{
+              boxShadow: 'inset 0 0 0 1px rgba(16,185,129,0.22), 0 0 16px rgba(16,185,129,0.08)',
+            }}
+          >
+            <Zap className="h-[18px] w-[18px] text-emerald-400 drop-shadow-[0_0_6px_rgba(16,185,129,0.45)]" />
           </div>
-          <span className="text-sm font-bold tracking-[0.15em] text-white/90">
-            NEXUSTRADE <span className="text-emerald-400">PRO</span>
-          </span>
+          <div className="flex items-baseline gap-0.5 select-none">
+            <span className="text-[13px] font-black tracking-[0.18em] text-white/90">
+              NEXUS
+            </span>
+            <span className="text-[13px] font-black tracking-[0.18em] text-emerald-400">
+              TRADE
+            </span>
+          </div>
         </div>
 
-        {/* Right: Status + Clock */}
+        {/* ── Center: (reserved / empty) ── */}
+
+        {/* ── Right: Status + Clock ── */}
         <div className="flex items-center gap-4">
-          {/* Live Status */}
+          {/* Live / Offline indicator */}
           <div className="flex items-center gap-2">
             <span className="relative flex h-2 w-2">
               <span
@@ -32,20 +44,20 @@ export function Header() {
                   'absolute inline-flex h-full w-full rounded-full opacity-75',
                   running
                     ? 'animate-ping bg-emerald-400'
-                    : 'animate-ping bg-red-400'
+                    : 'animate-ping bg-rose-400',
                 )}
               />
               <span
                 className={cn(
                   'relative inline-flex h-2 w-2 rounded-full',
-                  running ? 'bg-emerald-500' : 'bg-red-500'
+                  running ? 'bg-emerald-500' : 'bg-rose-500',
                 )}
               />
             </span>
             <span
               className={cn(
-                'text-[10px] font-mono font-semibold tracking-wider',
-                running ? 'text-emerald-400' : 'text-red-400'
+                'text-[10px] font-mono font-semibold tracking-[0.16em]',
+                running ? 'text-emerald-400' : 'text-rose-500',
               )}
             >
               {running ? 'LIVE' : 'OFFLINE'}
@@ -55,18 +67,26 @@ export function Header() {
           {/* Divider */}
           <div className="h-4 w-px bg-white/[0.06]" />
 
-          {/* Clock */}
-          <div className="hidden items-center gap-2 sm:flex">
+          {/* Clock cluster */}
+          <div className="hidden items-center gap-3 sm:flex">
+            {/* UTC */}
             <div className="flex items-center gap-1.5">
-              <span className="text-[10px] font-mono tracking-wider text-muted-foreground/60">UTC</span>
-              <span className="text-[11px] font-mono font-semibold tabular-nums text-white/80">
+              <span className="text-[10px] font-mono font-medium tracking-[0.12em] text-white/25">
+                UTC
+              </span>
+              <span className="min-w-[52px] text-[11px] font-mono font-semibold tabular-nums tracking-wide text-white/75">
                 {utc}
               </span>
             </div>
-            <div className="h-4 w-px bg-white/[0.06]" />
+
+            <div className="h-3.5 w-px bg-white/[0.06]" />
+
+            {/* Local */}
             <div className="flex items-center gap-1.5">
-              <span className="text-[10px] font-mono tracking-wider text-muted-foreground/60">LOCAL</span>
-              <span className="text-[11px] font-mono font-semibold tabular-nums text-white/80">
+              <span className="text-[10px] font-mono font-medium tracking-[0.12em] text-white/25">
+                LOCAL
+              </span>
+              <span className="min-w-[100px] text-[11px] font-mono font-semibold tabular-nums tracking-wide text-white/75">
                 {fullLocal}
               </span>
             </div>

@@ -12,7 +12,7 @@ import {
   ChevronDown,
   BarChart3,
 } from 'lucide-react';
-import { useStore, formatPair, type HistoryEntry } from '@/lib/store';
+import { useStore, formatPair } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
 /* ═══════════════════════════════════════════
@@ -32,7 +32,7 @@ const stagger = {
 };
 
 /* ═══════════════════════════════════════════
-   1. WIN RATE DONUT + STATS
+   1. WIN RATE DONUT (CSS conic-gradient)
    ═══════════════════════════════════════════ */
 function WinRateDonut() {
   const allTimeStats = useStore((s) => s.allTimeStats);
@@ -43,67 +43,60 @@ function WinRateDonut() {
   const winPct = total > 0 ? (allTimeStats.win / total) * 100 : 0;
   const mtgPct = total > 0 ? (allTimeStats.mtg / total) * 100 : 0;
 
+  // WIN=emerald-500, MTG=emerald-300, LOSS=rose-500
   const conicGradient = total > 0
-    ? `conic-gradient(#10b981 0% ${winPct}%, #3b82f6 ${winPct}% ${winPct + mtgPct}%, rgba(255,255,255,0.05) ${winPct + mtgPct}% 100%)`
+    ? `conic-gradient(#10b981 0% ${winPct}%, #6ee7b7 ${winPct}% ${winPct + mtgPct}%, rgba(255,255,255,0.05) ${winPct + mtgPct}% 100%)`
     : `conic-gradient(rgba(255,255,255,0.05) 0% 100%)`;
 
   return (
-    <div className="glass-card p-5 sm:p-6">
-      <div className="flex flex-col sm:flex-row items-center gap-6">
-        {/* Donut */}
+    <div className="glass-card p-6 sm:p-8">
+      {/* Section Divider */}
+      <div className="mb-6 flex items-center gap-3">
+        <span className="text-[10px] font-mono tracking-[0.15em] text-muted-foreground/60 uppercase">
+          Performance Overview
+        </span>
+        <div className="h-px flex-1 bg-gradient-to-r from-white/[0.06] to-transparent" />
+      </div>
+
+      {/* Large centered donut */}
+      <div className="flex flex-col items-center">
         <div className="relative flex shrink-0 items-center justify-center">
           <div
-            className="h-36 w-36 rounded-full transition-all duration-700"
+            className="h-44 w-44 rounded-full transition-all duration-700"
             style={{ background: conicGradient }}
           >
-            <div className="absolute inset-[6px] rounded-full bg-[#0a0e17] flex flex-col items-center justify-center">
-              <span className="font-mono font-black text-2xl tabular-nums text-white">
+            <div className="absolute inset-[8px] rounded-full bg-[#0a0e17] flex flex-col items-center justify-center">
+              <span className="font-mono font-black text-3xl tabular-nums text-white">
                 {winRate.toFixed(1)}
+                <span className="text-lg text-emerald-400">%</span>
               </span>
-              <span className="text-[9px] font-mono tracking-wider text-muted-foreground/40">
+              <span className="text-[10px] font-mono tracking-[0.2em] text-muted-foreground/40 mt-1">
                 WIN RATE
               </span>
             </div>
           </div>
         </div>
 
-        {/* Side Stats */}
-        <div className="flex-1 w-full space-y-3">
-          {/* Stat Rows */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between rounded-lg border border-emerald-500/10 bg-emerald-500/[0.03] px-3 py-2">
-              <div className="flex items-center gap-2">
-                <div className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-                <span className="text-[11px] font-mono text-muted-foreground/60">Win</span>
-              </div>
-              <span className="font-mono font-bold tabular-nums text-emerald-400">
-                {allTimeStats.win}
-              </span>
-            </div>
-            <div className="flex items-center justify-between rounded-lg border border-blue-500/10 bg-blue-500/[0.03] px-3 py-2">
-              <div className="flex items-center gap-2">
-                <div className="h-2.5 w-2.5 rounded-full bg-blue-500" />
-                <span className="text-[11px] font-mono text-muted-foreground/60">MTG</span>
-              </div>
-              <span className="font-mono font-bold tabular-nums text-blue-400">
-                {allTimeStats.mtg}
-              </span>
-            </div>
-            <div className="flex items-center justify-between rounded-lg border border-red-500/10 bg-red-500/[0.03] px-3 py-2">
-              <div className="flex items-center gap-2">
-                <div className="h-2.5 w-2.5 rounded-full bg-red-500" />
-                <span className="text-[11px] font-mono text-muted-foreground/60">Loss</span>
-              </div>
-              <span className="font-mono font-bold tabular-nums text-red-400">
-                {allTimeStats.loss}
-              </span>
-            </div>
-            <div className="flex items-center justify-between rounded-lg border border-white/[0.04] bg-white/[0.02] px-3 py-2">
-              <span className="text-[11px] font-mono text-muted-foreground/60">Total</span>
-              <span className="font-mono font-bold tabular-nums text-white/70">
-                {total}
-              </span>
-            </div>
+        {/* Legend row */}
+        <div className="mt-6 flex items-center gap-6">
+          <div className="flex items-center gap-2">
+            <div className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+            <span className="text-[11px] font-mono text-muted-foreground/60">WIN</span>
+            <span className="font-mono font-bold tabular-nums text-emerald-400 text-xs">{allTimeStats.win}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="h-2.5 w-2.5 rounded-full bg-emerald-300" />
+            <span className="text-[11px] font-mono text-muted-foreground/60">MTG</span>
+            <span className="font-mono font-bold tabular-nums text-emerald-300 text-xs">{allTimeStats.mtg}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="h-2.5 w-2.5 rounded-full bg-rose-500" />
+            <span className="text-[11px] font-mono text-muted-foreground/60">LOSS</span>
+            <span className="font-mono font-bold tabular-nums text-rose-400 text-xs">{allTimeStats.loss}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-mono text-muted-foreground/40">TOTAL</span>
+            <span className="font-mono font-bold tabular-nums text-white/60 text-xs">{total}</span>
           </div>
         </div>
       </div>
@@ -112,26 +105,50 @@ function WinRateDonut() {
 }
 
 /* ═══════════════════════════════════════════
-   2. ACTION BUTTONS + FILTER BUTTONS
+   2. FILTER PILLS (ALL / WIN / LOSS / MTG)
    ═══════════════════════════════════════════ */
 type FilterType = 'ALL' | 'WIN' | 'LOSS' | 'MTG';
 
-function HistoryControls({
+function FilterPills({
   filter,
   setFilter,
 }: {
   filter: FilterType;
   setFilter: (f: FilterType) => void;
 }) {
+  const filters: { type: FilterType; label: string }[] = [
+    { type: 'ALL', label: 'ALL' },
+    { type: 'WIN', label: 'WIN' },
+    { type: 'LOSS', label: 'LOSS' },
+    { type: 'MTG', label: 'MTG' },
+  ];
+
+  return (
+    <div className="flex gap-2">
+      {filters.map((f) => (
+        <button
+          key={f.type}
+          onClick={() => setFilter(f.type)}
+          className={cn(
+            'flex-1 rounded-lg border px-3 py-2 text-[11px] font-mono font-semibold tracking-wider transition-all duration-200',
+            filter === f.type
+              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+              : 'bg-white/[0.03] text-white/40 border-white/[0.06] hover:text-white/50 hover:border-white/[0.1]'
+          )}
+        >
+          {f.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   3. ACTION BUTTONS (Export CSV, Clear History)
+   ═══════════════════════════════════════════ */
+function ActionButtons() {
   const clearHistory = useStore((s) => s.clearHistory);
   const exportHistoryCSV = useStore((s) => s.exportHistoryCSV);
-
-  const filters: { type: FilterType; label: string; colorClass: string }[] = [
-    { type: 'ALL', label: 'ALL', colorClass: 'text-white/70 border-current' },
-    { type: 'WIN', label: 'WIN', colorClass: 'text-emerald-400 border-current' },
-    { type: 'LOSS', label: 'LOSS', colorClass: 'text-red-400 border-current' },
-    { type: 'MTG', label: 'MTG', colorClass: 'text-blue-400 border-current' },
-  ];
 
   const handleExport = () => {
     const csv = exportHistoryCSV();
@@ -147,48 +164,27 @@ function HistoryControls({
   };
 
   return (
-    <div className="space-y-3">
-      {/* Filter Buttons */}
-      <div className="flex gap-2">
-        {filters.map((f) => (
-          <button
-            key={f.type}
-            onClick={() => setFilter(f.type)}
-            className={cn(
-              'flex-1 rounded-lg border px-3 py-2 text-[11px] font-mono font-semibold tracking-wider transition-all',
-              filter === f.type
-                ? `${f.colorClass} bg-white/5`
-                : 'border-white/[0.06] text-muted-foreground/30 hover:text-muted-foreground/50'
-            )}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Action Buttons */}
-      <div className="flex gap-2">
-        <button
-          onClick={handleExport}
-          className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-emerald-500/30 px-3 py-2.5 text-[11px] font-mono font-semibold tracking-wider text-emerald-400 transition-all hover:bg-emerald-500/5"
-        >
-          <Download className="h-3.5 w-3.5" />
-          Export CSV
-        </button>
-        <button
-          onClick={() => clearHistory()}
-          className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-red-500/30 px-3 py-2.5 text-[11px] font-mono font-semibold tracking-wider text-red-400 transition-all hover:bg-red-500/5"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-          Clear History
-        </button>
-      </div>
+    <div className="flex gap-2">
+      <button
+        onClick={handleExport}
+        className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-emerald-500/20 px-3 py-2.5 text-[11px] font-mono font-semibold tracking-wider text-emerald-400 transition-all duration-200 hover:bg-emerald-500/5 active:scale-[0.98]"
+      >
+        <Download className="h-3.5 w-3.5" />
+        Export CSV
+      </button>
+      <button
+        onClick={() => clearHistory()}
+        className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-rose-500/20 px-3 py-2.5 text-[11px] font-mono font-semibold tracking-wider text-rose-400 transition-all duration-200 hover:bg-rose-500/5 active:scale-[0.98]"
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+        Clear History
+      </button>
     </div>
   );
 }
 
 /* ═══════════════════════════════════════════
-   3. TRADE HISTORY LIST
+   4. TRADE HISTORY LIST
    ═══════════════════════════════════════════ */
 function TradeHistoryList({ filter }: { filter: FilterType }) {
   const history = useStore((s) => s.history);
@@ -201,8 +197,8 @@ function TradeHistoryList({ filter }: { filter: FilterType }) {
 
   const resultBadgeClass: Record<string, string> = {
     WIN: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400',
-    MTG: 'border-blue-500/20 bg-blue-500/10 text-blue-400',
-    LOSS: 'border-red-500/20 bg-red-500/10 text-red-400',
+    MTG: 'border-emerald-300/20 bg-emerald-300/10 text-emerald-300',
+    LOSS: 'border-rose-500/20 bg-rose-500/10 text-rose-400',
     WAIT: 'border-amber-500/20 bg-amber-500/10 text-amber-400',
   };
 
@@ -210,12 +206,6 @@ function TradeHistoryList({ filter }: { filter: FilterType }) {
     WIN: Trophy,
     MTG: Minus,
     LOSS: TrendingDown,
-  };
-
-  const resultRowBg: Record<string, string> = {
-    WIN: 'bg-emerald-500/[0.03]',
-    MTG: 'bg-blue-500/[0.03]',
-    LOSS: 'bg-red-500/[0.03]',
   };
 
   return (
@@ -232,52 +222,50 @@ function TradeHistoryList({ filter }: { filter: FilterType }) {
       </div>
 
       {/* Scrollable List */}
-      <div className="max-h-[500px] overflow-y-auto space-y-2">
+      <div className="max-h-96 overflow-y-auto space-y-1.5">
         {filteredHistory.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12">
-            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.03]">
-              <BarChart3 className="h-5 w-5 text-muted-foreground/20" />
+          <div className="flex flex-col items-center justify-center py-16">
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-white/[0.03] border border-white/[0.06]">
+              <BarChart3 className="h-6 w-6 text-muted-foreground/20" />
             </div>
-            <p className="text-[11px] font-mono text-muted-foreground/30">
-              {filter === 'ALL' ? 'No trade history yet' : `No ${filter} trades found`}
+            <p className="text-xs font-mono text-muted-foreground/40 font-semibold">
+              No trade history yet
             </p>
-            <p className="text-[10px] font-mono text-muted-foreground/20">
-              {filter === 'ALL' ? 'Start trading to see your results here' : 'Try a different filter'}
+            <p className="mt-1 text-[10px] font-mono text-muted-foreground/25">
+              {filter === 'ALL'
+                ? 'Start trading to see your results here'
+                : `No ${filter} trades found`}
             </p>
           </div>
         ) : (
           filteredHistory.map((entry, i) => {
             const Icon = resultIconMap[entry.result] || Trophy;
-            const rowBg = resultRowBg[entry.result] || '';
 
             return (
               <motion.div
                 key={entry.id}
-                initial={{ opacity: 0, y: 6 }}
+                initial={{ opacity: 0, y: 4 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.02, duration: 0.25 }}
+                transition={{ delay: i * 0.015, duration: 0.2 }}
                 className={cn(
-                  'flex items-center gap-3 rounded-xl border border-white/[0.06] px-4 py-3 transition-colors hover:bg-white/[0.02]',
-                  rowBg
+                  'flex items-center gap-3 rounded-xl border border-white/[0.04] px-4 py-3 transition-colors duration-150 hover:bg-white/[0.02]',
+                  i % 2 === 0 ? 'bg-transparent' : 'bg-white/[0.015]'
                 )}
               >
-                {/* Left: Colored Icon */}
+                {/* Direction icon: emerald UP / rose DOWN */}
                 <div
                   className={cn(
                     'flex h-8 w-8 items-center justify-center rounded-lg shrink-0',
-                    entry.result === 'WIN' && 'bg-emerald-500/10',
-                    entry.result === 'MTG' && 'bg-blue-500/10',
-                    entry.result === 'LOSS' && 'bg-red-500/10'
+                    entry.dir === 'UP'
+                      ? 'bg-emerald-500/10'
+                      : 'bg-rose-500/10'
                   )}
                 >
-                  <Icon
-                    className={cn(
-                      'h-3.5 w-3.5',
-                      entry.result === 'WIN' && 'text-emerald-400',
-                      entry.result === 'MTG' && 'text-blue-400',
-                      entry.result === 'LOSS' && 'text-red-400'
-                    )}
-                  />
+                  {entry.dir === 'UP' ? (
+                    <ChevronUp className="h-4 w-4 text-emerald-400" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4 text-rose-400" />
+                  )}
                 </div>
 
                 {/* Middle: Details */}
@@ -286,17 +274,15 @@ function TradeHistoryList({ filter }: { filter: FilterType }) {
                     <span className="text-xs font-mono font-bold text-white/80">
                       {formatPair(entry.pair)}
                     </span>
-                    {entry.dir === 'UP' ? (
-                      <ChevronUp className="h-3 w-3 text-emerald-400" />
-                    ) : (
-                      <ChevronDown className="h-3 w-3 text-red-400" />
-                    )}
-                    <span className="text-[10px] font-mono text-amber-400/70 truncate">
+                    <span className="text-[10px] font-mono text-amber-500/70 truncate max-w-[120px]">
                       {entry.logic}
                     </span>
                   </div>
-                  <p className="mt-0.5 text-[10px] font-mono text-muted-foreground/40">
+                  <p className="mt-0.5 text-[10px] font-mono text-muted-foreground/35">
                     {entry.time ? tzDateStr(new Date(entry.time)) : '—'}
+                    <span className="ml-2 text-muted-foreground/25">
+                      S:{entry.score}
+                    </span>
                   </p>
                 </div>
 
@@ -323,9 +309,6 @@ function TradeHistoryList({ filter }: { filter: FilterType }) {
    ═══════════════════════════════════════════ */
 export default function HistoryPage() {
   const [filter, setFilter] = useState<FilterType>('ALL');
-  const stats = useStore((s) => s.stats);
-
-  const total = stats.win + stats.mtg + stats.loss;
 
   return (
     <motion.div
@@ -351,13 +334,18 @@ export default function HistoryPage() {
         <WinRateDonut />
       </motion.div>
 
-      {/* Controls */}
+      {/* Filter Pills */}
       <motion.div custom={2} variants={fadeUp} initial="hidden" animate="visible">
-        <HistoryControls filter={filter} setFilter={setFilter} />
+        <FilterPills filter={filter} setFilter={setFilter} />
+      </motion.div>
+
+      {/* Action Buttons */}
+      <motion.div custom={3} variants={fadeUp} initial="hidden" animate="visible">
+        <ActionButtons />
       </motion.div>
 
       {/* Trade History List */}
-      <motion.div custom={3} variants={fadeUp} initial="hidden" animate="visible">
+      <motion.div custom={4} variants={fadeUp} initial="hidden" animate="visible">
         <TradeHistoryList filter={filter} />
       </motion.div>
     </motion.div>

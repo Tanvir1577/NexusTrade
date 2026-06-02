@@ -28,7 +28,7 @@ export default function Home() {
         <DesktopSidebar />
 
         {/* Main Content */}
-        <main className="flex-1 overflow-hidden lg:pl-56">
+        <main className="flex-1 overflow-hidden lg:pl-60">
           <div className="h-full overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 pb-20 lg:pb-6">
             {currentTab === 'dashboard' && <DashboardPage />}
             {currentTab === 'chart' && (

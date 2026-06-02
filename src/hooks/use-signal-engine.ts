@@ -62,9 +62,7 @@ export function useSignalEngine() {
 
     setPendingSignal(null);
     signalScheduledRef.current = false;
-
-    // Play alert sound for result
-    try { playAlertSound(); } catch { /* ignore */ }
+    // No sound for results — sound only plays when new signal is provided
   }, [addHistoryEntry, addSessionEntry, incrementStat, setPendingSignal]);
 
   // ── Check pending signal result ──
@@ -152,7 +150,13 @@ export function useSignalEngine() {
         };
 
         const delay = timing.sendAt - Date.now();
-        if (delay > 0 && delay < 62000) {
+        // If delay is negative (detected after :30), send immediately
+        const effectiveDelay = Math.max(0, delay);
+        const entryTimeMs = new Date(timing.entryTime).getTime();
+        const timeUntilEntry = entryTimeMs - Date.now();
+        
+        // Only schedule if entry time is still in the future (at least 5s buffer)
+        if (timeUntilEntry > 5000 && effectiveDelay < 62000) {
           signalScheduledRef.current = true;
 
           setTimeout(async () => {
@@ -160,10 +164,20 @@ export function useSignalEngine() {
             if (!useStore.getState().running) return;
             if (useStore.getState().pendingSignal) return;
 
+            // Recalculate entry time at send time for accuracy
+            const freshTiming = getNextMinuteTiming(state.tzOffset);
+            const freshEntryMs = new Date(freshTiming.entryTime).getTime();
+            // If fresh entry is still >= 3s away, use it; otherwise keep original
+            const nowMs = Date.now();
+            if (freshEntryMs - nowMs >= 3000) {
+              fullSignal.entryTime = freshTiming.entryTime;
+              fullSignal.entryStr = freshTiming.entryStr;
+            }
+
             setPendingSignal(fullSignal);
             // Play alert sound for new signal
             try { playAlertSound(); } catch { /* ignore */ }
-          }, Math.max(0, delay));
+          }, effectiveDelay);
 
           break; // Only one signal per scan cycle
         }

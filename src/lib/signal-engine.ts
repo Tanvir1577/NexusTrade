@@ -850,7 +850,7 @@ export function checkCandleResult(
       t.getUTCMonth() === et.getUTCMonth() &&
       t.getUTCDate() === et.getUTCDate() &&
       t.getUTCHours() === et.getUTCHours() &&
-      t.getUTCMinutes() === et.getUTCMinutes() &&
+      t.getUTCMinutes() === et.getUTCMins() &&
       c.complete
     );
   });

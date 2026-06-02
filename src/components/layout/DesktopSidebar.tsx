@@ -38,7 +38,7 @@ export function DesktopSidebar() {
         <div className="px-5 pt-5 pb-4">
           <div className="flex items-center gap-3">
             <div
-              className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl"
+              className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full"
               style={{
                 background: 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(16,185,129,0.05))',
                 boxShadow:

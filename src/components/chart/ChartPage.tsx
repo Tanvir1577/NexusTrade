@@ -281,40 +281,64 @@ export default function ChartPage() {
       const yLow = priceToY(candle.l);
       const yOpen = priceToY(candle.o);
       const yClose = priceToY(candle.cl);
-      const bodyTop = Math.min(yOpen, yClose);
-      const bodyBot = Math.max(yOpen, yClose);
-      const bodyH = Math.max(bodyBot - bodyTop, 2); // minimum 2px body for visibility
-      const halfBody = bodyH / 2;
-      const bodyCenter = bodyTop + halfBody;
 
-      /* Upper wick shadow (high → body top) */
       const wickW = Math.max(1, Math.min(scale * 0.8, 1.5));
-      ctx.strokeStyle = color;
-      ctx.lineWidth = wickW;
-      ctx.beginPath();
-      ctx.moveTo(cx, yHigh);
-      ctx.lineTo(cx, bodyTop);
-      ctx.stroke();
-
-      /* Lower wick shadow (body bottom → low) */
-      ctx.beginPath();
-      ctx.moveTo(cx, bodyBot);
-      ctx.lineTo(cx, yLow);
-      ctx.stroke();
-
-      /* Candle body */
       const bodyLeft = cx - candleW / 2;
+
       if (bull) {
-        // Bullish: filled green body with subtle border
-        ctx.fillStyle = color;
-        ctx.fillRect(bodyLeft, bodyCenter - halfBody, candleW, bodyH);
+        /* ═══ BULLISH: Close > Open ═══
+           Body: Open (bottom) → Close (top)
+           Upper wick: Close → High
+           Lower wick: Open → Low  */
+        const bodyTop = yClose;   // close is higher price → lower Y
+        const bodyBot = yOpen;    // open is lower price → higher Y
+        const bodyH = Math.max(bodyBot - bodyTop, 2);
+
+        // Upper wick: Close → High
         ctx.strokeStyle = color;
-        ctx.lineWidth = Math.max(0.5, scale * 0.25);
-        ctx.strokeRect(bodyLeft + 0.25, bodyCenter - halfBody + 0.25, candleW - 0.5, bodyH - 0.5);
-      } else {
-        // Bearish: filled red body
+        ctx.lineWidth = wickW;
+        ctx.beginPath();
+        ctx.moveTo(cx, yHigh);
+        ctx.lineTo(cx, bodyTop);
+        ctx.stroke();
+
+        // Lower wick: Open → Low
+        ctx.beginPath();
+        ctx.moveTo(cx, bodyBot);
+        ctx.lineTo(cx, yLow);
+        ctx.stroke();
+
+        // Bullish body: filled with subtle border
         ctx.fillStyle = color;
-        ctx.fillRect(bodyLeft, bodyCenter - halfBody, candleW, bodyH);
+        ctx.fillRect(bodyLeft, bodyTop, candleW, bodyH);
+        ctx.lineWidth = Math.max(0.5, scale * 0.25);
+        ctx.strokeRect(bodyLeft + 0.25, bodyTop + 0.25, candleW - 0.5, bodyH - 0.5);
+      } else {
+        /* ═══ BEARISH: Open > Close ═══
+           Body: Open (top) → Close (bottom)
+           Upper wick: Open → High
+           Lower wick: Close → Low  */
+        const bodyTop = yOpen;    // open is higher price → lower Y
+        const bodyBot = yClose;   // close is lower price → higher Y
+        const bodyH = Math.max(bodyBot - bodyTop, 2);
+
+        // Upper wick: Open → High
+        ctx.strokeStyle = color;
+        ctx.lineWidth = wickW;
+        ctx.beginPath();
+        ctx.moveTo(cx, yHigh);
+        ctx.lineTo(cx, bodyTop);
+        ctx.stroke();
+
+        // Lower wick: Close → Low
+        ctx.beginPath();
+        ctx.moveTo(cx, bodyBot);
+        ctx.lineTo(cx, yLow);
+        ctx.stroke();
+
+        // Bearish body: solid filled
+        ctx.fillStyle = color;
+        ctx.fillRect(bodyLeft, bodyTop, candleW, bodyH);
       }
 
       ctx.globalAlpha = 1;

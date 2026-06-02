@@ -134,3 +134,43 @@ Stage Summary:
 - File: /home/z/my-project/src/lib/signal-engine.ts (complete rewrite v3.0)
 - ROOT CAUSE FIXED: ATR-based filtering eliminates ~80% of M1 noise triggers
 - Signals will be MUCH rarer but MUCH higher quality
+
+---
+Task ID: 14
+Agent: Main Coordinator
+Task: Replace entire engine with HXQ v4.0 source — complete removal of old system
+
+Work Log:
+- Removed ALL 56 pattern detectors and 7-layer ATR defense system
+- Replaced with HXQ v4.0 engine: 14 detectors, simple score-based consensus
+- Ported exact HXQ analyzeCandles() with all thresholds from original HTML source
+- Rewrote use-signal-engine.ts to match HXQ scanLoop (15s intervals, 50 candles, MTG one-step)
+
+Stage Summary:
+- Clean HXQ engine running with 14 detectors + simple consensus
+
+---
+Task ID: 15
+Agent: Main Coordinator
+Task: Add 60+ candlestick pattern detectors to HXQ engine
+
+Work Log:
+- Kept all 14 original HXQ detectors (ENGULFING, HAMMER, SHOOTING_STAR, DOJI_REVERSAL, EMA_CROSS, BREAKOUT, SUPPORT_BOUNCE, RESIST_REJECT, RSI, MACD, BB_SQUEEZE, INSIDE_BAR, MOMENTUM, PIN_BAR)
+- Added 60 new detectors organized in 9 sections:
+  - Section 1: Single-Candle Reversals (15): INVERTED_HAMMER, HANGING_MAN, DRAGONFLY_DOJI, GRAVESTONE_DOJI, LONG_LEGGED_DOJI, SPINNING_TOP, BULLISH_MARUBOZU, BEARISH_MARUBOZU, BULLISH_BELT_HOLD, BEARISH_BELT_HOLD
+  - Section 2: Two-Candle Reversals (15): PIERCING_LINE, DARK_CLOUD_COVER, BULLISH/BEARISH_HARAMI, HARAMI_CROSS_BULL/BEAR, KICKER x2, TWEEZER_BOTTOM/TOP, SEPARATING_LINES x2, MEETING_LINES_BULL, DOJI_STAR x2
+  - Section 3: Three-Candle Reversals (13): MORNING/EVENING_STAR, MORNING/EVENING_DOJI_STAR, THREE_WHITE_SOLDIERS/BLACK_CROWS, THREE_INSIDE_UP/DOWN, THREE_OUTSIDE_UP/DOWN, UPSIDE_GAP_TWO_CROWS, ABANDONED_BABY x2
+  - Section 4: Multi-Candle Patterns (9): RISING/FALLING_THREE_METHODS, MAT_HOLD x2, THREE_LINE_STRIKE x2, LADDER_BOTTOM, CONCEALING_BABY_SWALLOW, THREE_BLIND_MICE
+  - Section 5: Technical Indicators (4): EMA_CROSS, RSI, MACD, BB_SQUEEZE
+  - Section 6: Structural (4): BREAKOUT, SUPPORT_BOUNCE, RESIST_REJECT, INSIDE_BAR
+  - Section 7: Momentum & Continuation (4): MOMENTUM, DOWNSIDE_GAP_THREE_METHODS, TASUKI_GAP_UP/DOWN
+  - Section 8: Advanced Trend-Following (6): STRONG_BULL/BEAR_TREND, HIGHER_HIGH_HIGHER_LOW, LOWER_HIGH_LOWER_LOW, DOUBLE_BOTTOM_BOUNCE, DOUBLE_TOP_REJECT
+  - Section 9: Wick Rejection (4): LONG_LOWER/UPPER_WICK_REJECTION, NO_SPIN_REJECTION_UP/DN
+- Total: 74 pattern detectors
+- ESLint passes with zero errors
+- Dev server running correctly
+
+Stage Summary:
+- signal-engine.ts now has 74 candlestick pattern detectors (up from 14)
+- Covers single-candle, two-candle, three-candle, multi-candle, technical, structural, momentum, trend, and wick rejection patterns
+- Simple HXQ score-based consensus: sum UP vs DOWN, pick winner, check minScore threshold

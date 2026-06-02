@@ -130,7 +130,7 @@ export function useSignalEngine() {
         if (!useStore.getState().running) break;
         if (useStore.getState().pendingSignal) break;
 
-        const candles = await fetchCandles(pair, 100, 'M1');
+        const candles = await fetchCandles(pair, 50, 'M1');
         if (!candles || candles.length < 20) continue;
 
         // Update last price

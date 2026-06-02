@@ -8,6 +8,7 @@ import { playAlertSound } from '@/hooks/use-alert-sound';
 
 const SCAN_INTERVAL = 15000; // 15 seconds
 const RESULT_CHECK_INTERVAL = 15000; // 15 seconds
+const PAIR_COOLDOWN_MS = 300000; // 5 minutes per pair cooldown
 
 export function useSignalEngine() {
   const running = useStore((s) => s.running);
@@ -26,6 +27,7 @@ export function useSignalEngine() {
   const scanRunningRef = useRef(false);
   const signalScheduledRef = useRef(false);
   const finalizedIdsRef = useRef(new Set<string>());
+  const pairCooldownRef = useRef<Record<string, number>>({});
   const bgWorkerRef = useRef<Worker | null>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const noSleepAudioRef = useRef<{ ctx: AudioContext; src: AudioContext['createConstantSource'] } | null>(null);
@@ -62,7 +64,6 @@ export function useSignalEngine() {
 
     setPendingSignal(null);
     signalScheduledRef.current = false;
-    // No sound for results — sound only plays when new signal is provided
   }, [addHistoryEntry, addSessionEntry, incrementStat, setPendingSignal]);
 
   // ── Check pending signal result ──
@@ -103,11 +104,21 @@ export function useSignalEngine() {
       if (mtgResult) {
         await finalizeResult(sig, mtgResult.win ? 'MTG' : 'LOSS');
       }
-      // If MTG result not ready, wait for next check
     } else {
       await finalizeResult(sig, 'LOSS');
     }
   }, [finalizeResult, mtgEnabled, setLastPrice, setPendingSignal]);
+
+  // ── Check per-pair cooldown ──
+  const isPairOnCooldown = useCallback((pair: string): boolean => {
+    const lastTime = pairCooldownRef.current[pair] || 0;
+    return Date.now() - lastTime < PAIR_COOLDOWN_MS;
+  }, []);
+
+  // ── Set pair cooldown ──
+  const setPairCooldown = useCallback((pair: string) => {
+    pairCooldownRef.current[pair] = Date.now();
+  }, []);
 
   // ── Scan for new signals ──
   const scanForSignals = useCallback(async () => {
@@ -130,7 +141,11 @@ export function useSignalEngine() {
         if (!useStore.getState().running) break;
         if (useStore.getState().pendingSignal) break;
 
-        const candles = await fetchCandles(pair, 50, 'M1');
+        // Per-pair cooldown check
+        if (isPairOnCooldown(pair)) continue;
+
+        // Fetch 100 candles for better ATR and context analysis
+        const candles = await fetchCandles(pair, 100, 'M1');
         if (!candles || candles.length < 20) continue;
 
         // Update last price
@@ -150,24 +165,22 @@ export function useSignalEngine() {
         };
 
         const delay = timing.sendAt - Date.now();
-        // If delay is negative (detected after :30), send immediately
         const effectiveDelay = Math.max(0, delay);
         const entryTimeMs = new Date(timing.entryTime).getTime();
         const timeUntilEntry = entryTimeMs - Date.now();
-        
-        // Only schedule if entry time is still in the future (at least 5s buffer)
+
         if (timeUntilEntry > 5000 && effectiveDelay < 62000) {
           signalScheduledRef.current = true;
+          // Set cooldown immediately to prevent duplicate detection
+          setPairCooldown(pair);
 
           setTimeout(async () => {
             signalScheduledRef.current = false;
             if (!useStore.getState().running) return;
             if (useStore.getState().pendingSignal) return;
 
-            // Recalculate entry time at send time for accuracy
             const freshTiming = getNextMinuteTiming(state.tzOffset);
             const freshEntryMs = new Date(freshTiming.entryTime).getTime();
-            // If fresh entry is still >= 3s away, use it; otherwise keep original
             const nowMs = Date.now();
             if (freshEntryMs - nowMs >= 3000) {
               fullSignal.entryTime = freshTiming.entryTime;
@@ -175,7 +188,6 @@ export function useSignalEngine() {
             }
 
             setPendingSignal(fullSignal);
-            // Play alert sound for new signal
             try { playAlertSound(); } catch { /* ignore */ }
           }, effectiveDelay);
 
@@ -185,7 +197,7 @@ export function useSignalEngine() {
     } finally {
       scanRunningRef.current = false;
     }
-  }, [checkPendingResult, setLastPrice, setPendingSignal]);
+  }, [checkPendingResult, setLastPrice, setPendingSignal, isPairOnCooldown, setPairCooldown]);
 
   // ── Background worker for wake lock ──
   const startBgWorker = useCallback(() => {
@@ -273,12 +285,14 @@ export function useSignalEngine() {
       scanRunningRef.current = false;
       signalScheduledRef.current = false;
       finalizedIdsRef.current.clear();
+      pairCooldownRef.current = {};
       return;
     }
 
     // Reset session when starting
     resetSession();
     finalizedIdsRef.current.clear();
+    pairCooldownRef.current = {};
 
     // Start engine services
     requestWakeLock();

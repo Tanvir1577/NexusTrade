@@ -174,3 +174,52 @@ Stage Summary:
 - signal-engine.ts now has 74 candlestick pattern detectors (up from 14)
 - Covers single-candle, two-candle, three-candle, multi-candle, technical, structural, momentum, trend, and wick rejection patterns
 - Simple HXQ score-based consensus: sum UP vs DOWN, pick winner, check minScore threshold
+
+---
+Task ID: 16
+Agent: Main Coordinator
+Task: Signal Engine v5.0 — Smart Context-Gated Architecture (fix loss problem)
+
+Work Log:
+- Diagnosed ROOT CAUSE of losses:
+  1. 74 detectors on M1 = pattern carnival (noise triggers everywhere)
+  2. No ATR gate = no noise filter (0.3 pip candles pass all checks)
+  3. No consolidation detection = patterns fire in ranging markets (guaranteed loss)
+  4. No trend quality check = reversal patterns in no-trend = meaningless
+  5. Score stacking on noise = false confidence (6 garbage votes look like "score 8")
+- Complete rewrite of signal-engine.ts to 4-layer architecture:
+  - LAYER 1: PRE-FILTER GATES (kill noise BEFORE any pattern runs)
+    - ATR Gate: current candle range must be >= 50% of 14-period ATR
+    - Dead Zone: skip when volatility too low (ATR/price < 0.000015)
+    - Consolidation: skip when 15-candle range < 3x ATR (ranging market)
+  - LAYER 2: CONTEXT ANALYSIS
+    - Trend direction via EMA20 slope
+    - Trend strength (0-1 normalized)
+    - Support/Resistance from 30-candle extremes
+    - Market phase classification
+  - LAYER 3: PATTERN DETECTION (74 detectors, all ATR-gated)
+    - Every pattern now uses ATR-relative thresholds instead of raw percentages
+    - HAMMER requires downtrend context, SHOOTING_STAR requires uptrend
+    - ENGULFING requires 1.5x body ratio (up from 1.2x)
+    - PIN_BAR requires 2.5x tail/nose ratio (up from 2x)
+    - EMA_CROSS requires meaningful EMA gap (> 0.1 ATR)
+    - RSI thresholds tightened to 25/75 (from 28/72)
+    - BREAKOUT requires 0.3 ATR break distance
+    - All continuation patterns require ATR-relative body sizes
+  - LAYER 4: SMART CONSENSUS (6 rules, not just score sum)
+    - Rule 1: Minimum 3 patterns must agree on direction
+    - Rule 2: Winner must dominate by 1.8x (not just > loser)
+    - Rule 3: Minimum raw score of 18 (quality floor)
+    - Rule 4: Pass user's minScore threshold
+    - Rule 5: Multi-category bonus (2+ categories = stronger signal)
+    - Rule 6: Counter-trend signals need 5+ patterns + score 25+
+- Updated use-signal-engine.ts:
+  - Fetches 100 candles (up from 50) for better ATR/context
+  - Per-pair 5-minute cooldown to prevent spam
+  - Cooldown set immediately on detection (not after signal fires)
+
+Stage Summary:
+- This is the REAL fix. Patterns alone don't win — CONTEXT wins.
+- Engine v5.0: 74 patterns + ATR gates + consolidation filter + trend alignment + smart consensus
+- Signals will be much rarer but each one has real market structure behind it
+- Files modified: signal-engine.ts (complete rewrite), use-signal-engine.ts (updated)

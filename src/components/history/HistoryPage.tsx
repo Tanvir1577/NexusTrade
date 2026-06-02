@@ -46,7 +46,7 @@ function WinRateDonut() {
   // WIN=emerald-500, MTG=amber-500, LOSS=rose-500
   const conicGradient = total > 0
     ? `conic-gradient(#10b981 0% ${winPct}%, #f59e0b ${winPct}% ${winPct + mtgPct}%, rgba(255,255,255,0.05) ${winPct + mtgPct}% 100%)`
-    : `conic-gradient(rgba(255,255,255,0.05) 0% 100%)`;
+    : `conic-gradient(rgba(255,255,255,0.04) 0% 100%)`;
 
   return (
     <div className="glass-card p-6 sm:p-8">
@@ -66,13 +66,26 @@ function WinRateDonut() {
             style={{ background: conicGradient }}
           >
             <div className="absolute inset-[8px] rounded-full bg-[#0a0e17] flex flex-col items-center justify-center">
-              <span className="font-mono font-black text-3xl tabular-nums text-white">
-                {winRate.toFixed(1)}
-                <span className="text-lg text-emerald-400">%</span>
-              </span>
-              <span className="text-[10px] font-mono tracking-[0.2em] text-muted-foreground/40 mt-1">
-                WIN RATE
-              </span>
+              {total > 0 ? (
+                <>
+                  <span className="font-mono font-black text-3xl tabular-nums text-white">
+                    {winRate.toFixed(1)}
+                    <span className="text-lg text-emerald-400">%</span>
+                  </span>
+                  <span className="text-[10px] font-mono tracking-[0.2em] text-muted-foreground/40 mt-1">
+                    WIN RATE
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="font-mono font-black text-2xl tabular-nums text-muted-foreground/25">
+                    0.0<span className="text-base">%</span>
+                  </span>
+                  <span className="text-[9px] font-mono tracking-[0.2em] text-muted-foreground/20 mt-1">
+                    NO DATA
+                  </span>
+                </>
+              )}
             </div>
           </div>
         </div>

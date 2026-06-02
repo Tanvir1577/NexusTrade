@@ -142,10 +142,12 @@ function detectPatterns(c: OHLC[]): PatternResult[] {
   const range = cur.h - cur.l;
   const upper = cur.h - Math.max(cur.cl, cur.o);
   const lower = Math.min(cur.cl, cur.o) - cur.l;
-  if (range > 0 && lower > body * 2.5 && lower > upper * 2 && body < range * 0.3) {
+  // HAMMER: requires downtrend context (prevents overlap with HANGING_MAN)
+  if (range > 0 && lower > body * 2 && lower > upper * 2 && body < range * 0.3 && isDowntrend(d, 6)) {
     results.push({ logic: 'HAMMER', dir: 'UP', score: 7 });
   }
-  if (range > 0 && upper > body * 2.5 && upper > lower * 2 && body < range * 0.3) {
+  // SHOOTING_STAR: requires uptrend context (prevents overlap with INVERTED_HAMMER)
+  if (range > 0 && upper > body * 2 && upper > lower * 2 && body < range * 0.3 && isUptrend(d, 6)) {
     results.push({ logic: 'SHOOTING_STAR', dir: 'DOWN', score: 7 });
   }
 

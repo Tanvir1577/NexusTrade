@@ -110,7 +110,7 @@ export function TickerBar() {
     <div className="relative h-9 overflow-hidden border-b border-white/[0.04] bg-[#050810]/80">
       <div
         className="flex h-full w-max items-center"
-        style={{ animation: 'ticker-scroll 120s linear infinite' }}
+        style={{ animation: 'ticker-scroll 200s linear infinite' }}
       >
         {duplicated.map((item, i) => (
           <TickerRow key={`${item.pair}-${i}`} item={item} />

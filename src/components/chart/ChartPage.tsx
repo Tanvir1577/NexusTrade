@@ -47,11 +47,11 @@ const OHLC_BAR_H = 24;
 const HEADER_H = 42;
 
 // Core candle geometry — TradingView proportions
-// At scale=1: each candle slot = BODY + GAP = 8px
-// Body fills ~75% of slot, gap fills ~12.5% each side
-const CANDLE_BODY = 6;
+// At scale=1: each candle slot = BODY + GAP = 7px
+// Body fills ~71% of slot, gap fills ~14% right side
+const CANDLE_BODY = 5;
 const CANDLE_GAP = 2;
-const CANDLE_SLOT = CANDLE_BODY + CANDLE_GAP; // 8px per candle at scale 1
+const CANDLE_SLOT = CANDLE_BODY + CANDLE_GAP; // 7px per candle at scale 1
 
 const MOMENTUM_DECAY = 0.92;
 const MIN_SCALE = 0.4;
@@ -221,16 +221,25 @@ export default function ChartPage() {
     const slotW = CANDLE_SLOT * scale;
     const bodyW = CANDLE_BODY * scale;
 
-    /* ---- price range from ALL data (not just visible) for stable Y-axis ---- */
+    /* ---- visible slot range ---- */
+    const startSlot = Math.max(0, Math.floor(-offset / slotW));
+    const endSlot = Math.min(data.length, Math.ceil((chartW - offset) / slotW) + 1);
+
+    /* ---- price range from VISIBLE candles only (TradingView-style) ---- */
     let priceLow = Infinity;
     let priceHigh = -Infinity;
-    for (let i = 0; i < data.length; i++) {
+    for (let i = startSlot; i < endSlot; i++) {
       if (data[i].l < priceLow) priceLow = data[i].l;
       if (data[i].h > priceHigh) priceHigh = data[i].h;
     }
-    // 6% padding per side — tight like TradingView
+    // Ensure minimum range for stability
+    if (priceLow >= priceHigh) {
+      priceLow -= 0.0005;
+      priceHigh += 0.0005;
+    }
+    // 8% padding per side — TradingView-style
     const rawRange = priceHigh - priceLow;
-    const pad = rawRange === 0 ? 0.0001 : rawRange * 0.06;
+    const pad = rawRange * 0.08;
     priceLow -= pad;
     priceHigh += pad;
     const priceRange = priceHigh - priceLow;
@@ -270,8 +279,6 @@ export default function ChartPage() {
 
     // Space time labels every ~80px of chart width
     const timeStepPx = 80;
-    const startSlot = Math.max(0, Math.floor(-offset / slotW));
-    const endSlot = Math.min(data.length, Math.ceil((chartW - offset) / slotW));
 
     for (let s = startSlot; s < endSlot; s++) {
       const cx = s * slotW + offset + slotW / 2;
@@ -297,43 +304,41 @@ export default function ChartPage() {
     }
 
     /* ================================================================ */
-    /*  CANDLESTICKS — TradingView rendering                            */
+    /*  CANDLESTICKS — TradingView rendering (visible only)             */
     /* ================================================================ */
-    for (let i = 0; i < data.length; i++) {
+    for (let i = startSlot; i < endSlot; i++) {
       const candle = data[i];
-      const cx = i * slotW + offset + slotW / 2; // center of slot
-      if (cx + slotW / 2 < 0 || cx - slotW / 2 > chartW) continue;
+      const cx = i * slotW + offset + slotW / 2;
+
+      // Skip off-screen candles
+      if (cx + slotW < 0 || cx - slotW > chartW) continue;
 
       const bull = candle.cl >= candle.o;
       const color = bull ? BULL : BEAR;
-      const alpha = candle.complete ? 1 : 0.5;
-      ctx.globalAlpha = alpha;
+      ctx.globalAlpha = candle.complete ? 1 : 0.5;
 
       const yH = priceToY(candle.h);
       const yL = priceToY(candle.l);
       const yO = priceToY(candle.o);
       const yC = priceToY(candle.cl);
 
-      /* --- 1px wick from High to Low (body painted on top) --- */
+      // Wick: 1px hairline from high to low
       ctx.strokeStyle = color;
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(Math.round(cx) + 0.5, Math.round(yH) + 0.5);
-      ctx.lineTo(Math.round(cx) + 0.5, Math.round(yL) + 0.5);
+      ctx.moveTo(Math.round(cx) + 0.5, Math.round(yH));
+      ctx.lineTo(Math.round(cx) + 0.5, Math.round(yL));
       ctx.stroke();
 
-      /* --- Body: filled rectangle --- */
-      // Bullish: bodyTop = Close (higher price = lower Y), bodyBot = Open
-      // Bearish: bodyTop = Open (higher price = lower Y), bodyBot = Close
-      const bodyTop = bull ? yC : yO;
-      const bodyBot = bull ? yO : yC;
-      const bodyH = Math.max(Math.round(Math.abs(bodyTop - bodyBot)), 1);
-
-      const bx = Math.round(cx - bodyW / 2) + 0.5;
-      const by = Math.round(Math.min(bodyTop, bodyBot)) + 0.5;
+      // Body: filled rectangle
+      const bodyTop = Math.min(yO, yC);
+      const bodyBot = Math.max(yO, yC);
+      const bodyHeight = Math.max(Math.abs(bodyBot - bodyTop), 1);
+      const bx = Math.round(cx - bodyW / 2);
+      const by = Math.round(bodyTop);
 
       ctx.fillStyle = color;
-      ctx.fillRect(bx, by, Math.round(bodyW), bodyH);
+      ctx.fillRect(bx, by, Math.round(bodyW), bodyHeight);
 
       ctx.globalAlpha = 1;
     }

@@ -231,3 +231,37 @@ Stage Summary:
 - Files: HistoryPage.tsx, SettingsPage.tsx, ProfilePage.tsx
 - Single accent: emerald, danger: rose
 - Bloomberg terminal look
+
+---
+Task ID: 11
+Agent: Main Coordinator
+Task: Chart rewrite, pattern verification, and UI fixes
+
+Work Log:
+- Undid signal engine bug fix (et.getUTCMinutes back to et.getUTCMins per user request)
+- Completely rewrote ChartPage.tsx candlestick rendering from scratch
+  - Key fix: Changed price range calculation from ALL 300 candles to VISIBLE candles only (TradingView-style)
+  - Reduced candle slot from 8px to 7px (body=5, gap=2) for tighter spacing
+  - Added safety guard for minimum price range
+  - Increased padding from 6% to 8% for breathing room
+  - All existing interactions preserved (drag, zoom, crosshair, touch)
+- Verified all 56 pattern detectors in signal-engine.ts
+  - 49 patterns: Clean PASS (anatomy, direction, logic all correct)
+  - 5 patterns: PASS with design issues (HAMMER/SHOOTING_STAR missing trend context)
+  - Fixed HAMMER: Added isDowntrend(d, 6) guard to prevent overlap with HANGING_MAN
+  - Fixed SHOOTING_STAR: Added isUptrend(d, 6) guard to prevent overlap with INVERTED_HAMMER
+  - Harmonized shadow threshold from 2.5× to 2× for consistency
+- Slowed down ticker bar animation from 120s to 200s
+- Fixed MTG vs WIN color differentiation in ProfilePage (MTG: emerald-300 → amber-500)
+- Made DashboardPage SessionSignalFlow more compact (reduced padding, font sizes, tighter grid)
+- Fixed HistoryPage win rate donut empty state display when history is cleared
+- ESLint passes with zero errors throughout
+
+Stage Summary:
+- File: /home/z/my-project/src/components/chart/ChartPage.tsx (complete rewrite)
+- File: /home/z/my-project/src/lib/signal-engine.ts (pattern fixes)
+- File: /home/z/my-project/src/components/layout/TickerBar.tsx (slower animation)
+- File: /home/z/my-project/src/components/dashboard/DashboardPage.tsx (compact session flow)
+- File: /home/z/my-project/src/components/history/HistoryPage.tsx (empty state fix)
+- File: /home/z/my-project/src/components/profile/ProfilePage.tsx (MTG color differentiation)
+- All 7 pending tasks completed

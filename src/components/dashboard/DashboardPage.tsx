@@ -501,7 +501,7 @@ function SessionSignalFlow() {
 
   // Use 16-column compact grid with smaller blocks
   const blocks = useMemo(() => {
-    const recent = sessionLog.slice(-80);
+    const recent = sessionLog.slice(-96);
     return recent.map((entry) => ({
       result: entry.result,
     }));
@@ -522,54 +522,54 @@ function SessionSignalFlow() {
       variants={fadeUp}
       initial="hidden"
       animate="visible"
-      className="glass-card px-4 py-3.5 sm:px-5 sm:py-4"
+      className="glass-card px-3 py-2.5 sm:px-4 sm:py-3"
     >
       {/* Section Divider */}
-      <div className="mb-3 flex items-center gap-3">
-        <span className="text-[10px] font-mono tracking-[0.2em] text-muted-foreground/50 uppercase">
+      <div className="mb-1.5 flex items-center gap-2">
+        <span className="text-[9px] font-mono tracking-[0.2em] text-muted-foreground/40 uppercase">
           Signal Flow
         </span>
-        <div className="h-px flex-1 bg-gradient-to-r from-white/[0.06] to-transparent" />
+        <div className="h-px flex-1 bg-gradient-to-r from-white/[0.04] to-transparent" />
+        <span className="text-[9px] font-mono tabular-nums text-muted-foreground/20">
+          {stats.win + stats.mtg + stats.loss}
+        </span>
       </div>
 
-      {/* 3-Column Mini Stat Chips — compact */}
-      <div className="mb-3 flex items-center gap-4">
-        <div className="flex items-center gap-1.5">
-          <div className="h-2 w-2 rounded-sm bg-emerald-500" />
-          <span className="text-[10px] font-mono tabular-nums text-emerald-400 font-bold">{stats.win}</span>
+      {/* Inline Mini Stat Chips — Bloomberg terminal style */}
+      <div className="mb-2 flex items-center gap-3">
+        <div className="flex items-center gap-1">
+          <div className="h-1.5 w-1.5 rounded-[1px] bg-emerald-500" />
+          <span className="text-[9px] font-mono tabular-nums text-emerald-400/80 font-semibold">{stats.win}W</span>
         </div>
-        <div className="flex items-center gap-1.5">
-          <div className="h-2 w-2 rounded-sm bg-amber-500" />
-          <span className="text-[10px] font-mono tabular-nums text-amber-400 font-bold">{stats.mtg}</span>
+        <div className="flex items-center gap-1">
+          <div className="h-1.5 w-1.5 rounded-[1px] bg-amber-500" />
+          <span className="text-[9px] font-mono tabular-nums text-amber-400/80 font-semibold">{stats.mtg}M</span>
         </div>
-        <div className="flex items-center gap-1.5">
-          <div className="h-2 w-2 rounded-sm bg-rose-500" />
-          <span className="text-[10px] font-mono tabular-nums text-rose-400 font-bold">{stats.loss}</span>
+        <div className="flex items-center gap-1">
+          <div className="h-1.5 w-1.5 rounded-[1px] bg-rose-500" />
+          <span className="text-[9px] font-mono tabular-nums text-rose-400/80 font-semibold">{stats.loss}L</span>
         </div>
-        <span className="ml-auto text-[10px] font-mono text-muted-foreground/25">
-          {stats.win + stats.mtg + stats.loss} total
-        </span>
       </div>
 
       {/* Signal Blocks Grid — compact 16-col */}
       {gridBlocks.length > 0 ? (
-        <div className="grid gap-[3px]" style={{ gridTemplateColumns: 'repeat(16, 1fr)' }}>
+        <div className="grid gap-[2px]" style={{ gridTemplateColumns: 'repeat(16, 1fr)' }}>
           {gridBlocks.map((block, i) => {
             if (!block) {
               return (
                 <div
                   key={`empty-${i}`}
-                  className="aspect-square rounded-[2px] bg-white/[0.02]"
+                  className="aspect-square rounded-[1px] bg-white/[0.015]"
                 />
               );
             }
 
             const colorClass =
               block.result === 'WIN'
-                ? 'bg-emerald-500/70'
+                ? 'bg-emerald-500/60'
                 : block.result === 'MTG'
-                  ? 'bg-amber-500/70'
-                  : 'bg-rose-500/70';
+                  ? 'bg-amber-500/60'
+                  : 'bg-rose-500/60';
 
             return (
               <motion.div
@@ -577,12 +577,12 @@ function SessionSignalFlow() {
                 initial={{ opacity: 0, scale: 0.4 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{
-                  delay: i * 0.008,
-                  duration: 0.15,
+                  delay: i * 0.005,
+                  duration: 0.12,
                   ease: [0.22, 0.61, 0.36, 1],
                 }}
                 className={cn(
-                  'aspect-square rounded-[2px]',
+                  'aspect-square rounded-[1px]',
                   colorClass
                 )}
               />
@@ -590,10 +590,10 @@ function SessionSignalFlow() {
           })}
         </div>
       ) : (
-        <div className="flex flex-col items-center justify-center py-8">
-          <Activity className="h-4 w-4 text-muted-foreground/15 mb-2" />
-          <p className="text-[10px] font-mono text-muted-foreground/20">
-            No signals yet this session
+        <div className="flex items-center justify-center gap-2 py-4">
+          <Activity className="h-3 w-3 text-muted-foreground/10" />
+          <p className="text-[9px] font-mono text-muted-foreground/15">
+            No signals
           </p>
         </div>
       )}

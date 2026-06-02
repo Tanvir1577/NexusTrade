@@ -279,7 +279,7 @@ function AllTimeStatsGrid() {
               style={{ width: `${(allTimeStats.win / total) * 100}%` }}
             />
             <div
-              className="bg-emerald-300 transition-all duration-500"
+              className="bg-amber-500 transition-all duration-500"
               style={{ width: `${(allTimeStats.mtg / total) * 100}%` }}
             />
             <div
@@ -293,7 +293,7 @@ function AllTimeStatsGrid() {
             <span className="text-[11px] font-mono font-bold text-emerald-400 tabular-nums">
               {allTimeStats.win}W
             </span>
-            <span className="text-[11px] font-mono font-bold text-emerald-300 tabular-nums">
+            <span className="text-[11px] font-mono font-bold text-amber-400 tabular-nums">
               {allTimeStats.mtg}MTG
             </span>
             <span className="text-[11px] font-mono font-bold text-rose-400 tabular-nums">

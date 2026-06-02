@@ -48,9 +48,9 @@ export function DesktopSidebar() {
               <Image
                 src="/logo-icon.png"
                 alt="NexusTrade Pro"
-                width={28}
-                height={28}
-                className="object-contain"
+                width={36}
+                height={36}
+                className="rounded-full object-cover"
               />
             </div>
             <div>

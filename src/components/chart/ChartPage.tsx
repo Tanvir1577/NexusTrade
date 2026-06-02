@@ -266,7 +266,7 @@ export default function ChartPage() {
       ctx.stroke();
     }
 
-    /* ---- candles (proper candlestick rendering) ---- */
+    /* ---- candles (TradingView-style rendering) ---- */
     for (let i = 0; i < data.length; i++) {
       const candle = data[i];
       const cx = i * cw + offset + candleW / 2;
@@ -274,7 +274,7 @@ export default function ChartPage() {
 
       const bull = candle.cl >= candle.o;
       const color = bull ? BULL : BEAR;
-      const alpha = candle.complete ? 1 : 0.6;
+      const alpha = candle.complete ? 1 : 0.55;
       ctx.globalAlpha = alpha;
 
       const yHigh = priceToY(candle.h);
@@ -282,63 +282,48 @@ export default function ChartPage() {
       const yOpen = priceToY(candle.o);
       const yClose = priceToY(candle.cl);
 
-      const wickW = Math.max(1, Math.min(scale * 0.8, 1.5));
-      const bodyLeft = cx - candleW / 2;
+      /* Wick: always 1px hairline, exactly like TradingView */
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(cx, yHigh);
+      ctx.lineTo(cx, yLow);
+      ctx.stroke();
+
+      /* Body: ~60% of slot width, centered — TradingView proportion */
+      const bodyWidth = Math.max(Math.round(candleW * 0.6), 1);
+      const bodyLeft = cx - bodyWidth / 2;
 
       if (bull) {
-        /* ═══ BULLISH: Close > Open ═══
-           Body: Open (bottom) → Close (top)
-           Upper wick: Close → High
-           Lower wick: Open → Low  */
-        const bodyTop = yClose;   // close is higher price → lower Y
-        const bodyBot = yOpen;    // open is lower price → higher Y
-        const bodyH = Math.max(bodyBot - bodyTop, 2);
+        /* BULLISH: Close > Open
+           Body top = Close (higher price = lower Y)
+           Body bottom = Open (lower price = higher Y) */
+        const bodyTop = yClose;
+        const bodyBot = yOpen;
+        const bodyH = Math.max(bodyBot - bodyTop, 1); // 1px for doji
 
-        // Upper wick: Close → High
-        ctx.strokeStyle = color;
-        ctx.lineWidth = wickW;
-        ctx.beginPath();
-        ctx.moveTo(cx, yHigh);
-        ctx.lineTo(cx, bodyTop);
-        ctx.stroke();
-
-        // Lower wick: Open → Low
-        ctx.beginPath();
-        ctx.moveTo(cx, bodyBot);
-        ctx.lineTo(cx, yLow);
-        ctx.stroke();
-
-        // Bullish body: filled with subtle border
         ctx.fillStyle = color;
-        ctx.fillRect(bodyLeft, bodyTop, candleW, bodyH);
-        ctx.lineWidth = Math.max(0.5, scale * 0.25);
-        ctx.strokeRect(bodyLeft + 0.25, bodyTop + 0.25, candleW - 0.5, bodyH - 0.5);
+        ctx.fillRect(
+          Math.round(bodyLeft) + 0.5,
+          Math.round(bodyTop) + 0.5,
+          bodyWidth,
+          Math.round(bodyH)
+        );
       } else {
-        /* ═══ BEARISH: Open > Close ═══
-           Body: Open (top) → Close (bottom)
-           Upper wick: Open → High
-           Lower wick: Close → Low  */
-        const bodyTop = yOpen;    // open is higher price → lower Y
-        const bodyBot = yClose;   // close is lower price → higher Y
-        const bodyH = Math.max(bodyBot - bodyTop, 2);
+        /* BEARISH: Open > Close
+           Body top = Open (higher price = lower Y)
+           Body bottom = Close (lower price = higher Y) */
+        const bodyTop = yOpen;
+        const bodyBot = yClose;
+        const bodyH = Math.max(bodyBot - bodyTop, 1); // 1px for doji
 
-        // Upper wick: Open → High
-        ctx.strokeStyle = color;
-        ctx.lineWidth = wickW;
-        ctx.beginPath();
-        ctx.moveTo(cx, yHigh);
-        ctx.lineTo(cx, bodyTop);
-        ctx.stroke();
-
-        // Lower wick: Close → Low
-        ctx.beginPath();
-        ctx.moveTo(cx, bodyBot);
-        ctx.lineTo(cx, yLow);
-        ctx.stroke();
-
-        // Bearish body: solid filled
         ctx.fillStyle = color;
-        ctx.fillRect(bodyLeft, bodyTop, candleW, bodyH);
+        ctx.fillRect(
+          Math.round(bodyLeft) + 0.5,
+          Math.round(bodyTop) + 0.5,
+          bodyWidth,
+          Math.round(bodyH)
+        );
       }
 
       ctx.globalAlpha = 1;

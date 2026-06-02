@@ -43,9 +43,9 @@ function WinRateDonut() {
   const winPct = total > 0 ? (allTimeStats.win / total) * 100 : 0;
   const mtgPct = total > 0 ? (allTimeStats.mtg / total) * 100 : 0;
 
-  // WIN=emerald-500, MTG=emerald-300, LOSS=rose-500
+  // WIN=emerald-500, MTG=amber-500, LOSS=rose-500
   const conicGradient = total > 0
-    ? `conic-gradient(#10b981 0% ${winPct}%, #6ee7b7 ${winPct}% ${winPct + mtgPct}%, rgba(255,255,255,0.05) ${winPct + mtgPct}% 100%)`
+    ? `conic-gradient(#10b981 0% ${winPct}%, #f59e0b ${winPct}% ${winPct + mtgPct}%, rgba(255,255,255,0.05) ${winPct + mtgPct}% 100%)`
     : `conic-gradient(rgba(255,255,255,0.05) 0% 100%)`;
 
   return (
@@ -85,9 +85,9 @@ function WinRateDonut() {
             <span className="font-mono font-bold tabular-nums text-emerald-400 text-xs">{allTimeStats.win}</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="h-2.5 w-2.5 rounded-full bg-emerald-300" />
+            <div className="h-2.5 w-2.5 rounded-full bg-amber-500" />
             <span className="text-[11px] font-mono text-muted-foreground/60">MTG</span>
-            <span className="font-mono font-bold tabular-nums text-emerald-300 text-xs">{allTimeStats.mtg}</span>
+            <span className="font-mono font-bold tabular-nums text-amber-400 text-xs">{allTimeStats.mtg}</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="h-2.5 w-2.5 rounded-full bg-rose-500" />
@@ -197,7 +197,7 @@ function TradeHistoryList({ filter }: { filter: FilterType }) {
 
   const resultBadgeClass: Record<string, string> = {
     WIN: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400',
-    MTG: 'border-emerald-300/20 bg-emerald-300/10 text-emerald-300',
+    MTG: 'border-amber-500/20 bg-amber-500/10 text-amber-400',
     LOSS: 'border-rose-500/20 bg-rose-500/10 text-rose-400',
     WAIT: 'border-amber-500/20 bg-amber-500/10 text-amber-400',
   };

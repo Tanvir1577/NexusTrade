@@ -405,11 +405,12 @@ function WinRateCard() {
               cy={radius}
               className="transition-all duration-700 ease-out"
             />
-            {/* Emerald-only gradient */}
+            {/* Emerald gradient */}
             <defs>
               <linearGradient id="winRateGradient" gradientTransform="rotate(90)">
                 <stop offset="0%" stopColor="#10b981" />
-                <stop offset="100%" stopColor="#6ee7b7" />
+                <stop offset="50%" stopColor="#34d399" />
+                <stop offset="100%" stopColor="#10b981" />
               </linearGradient>
             </defs>
           </svg>
@@ -470,7 +471,7 @@ function WinRateCard() {
           <div className="relative">
             <div className="h-2 w-full overflow-hidden rounded-full bg-white/[0.04]">
               <div
-                className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-emerald-400 to-emerald-300 transition-all duration-700"
+                className="h-full rounded-full bg-gradient-to-r from-emerald-600 via-emerald-500 to-emerald-400 transition-all duration-700"
                 style={{ width: `${winRate}%` }}
               />
             </div>
@@ -498,19 +499,18 @@ function SessionSignalFlow() {
   const stats = useStore((s) => s.stats);
   const sessionLog = useStore((s) => s.sessionLog);
 
-  // Build 8-column grid blocks from recent entries
+  // Use 16-column compact grid with smaller blocks
   const blocks = useMemo(() => {
-    const recent = sessionLog.slice(-64);
+    const recent = sessionLog.slice(-80);
     return recent.map((entry) => ({
       result: entry.result,
     }));
   }, [sessionLog]);
 
-  // Pad to fill the grid
   const gridBlocks = useMemo(() => {
     if (blocks.length === 0) return [];
     const padded = [...blocks];
-    while (padded.length % 8 !== 0) {
+    while (padded.length % 16 !== 0) {
       padded.push(null);
     }
     return padded;
@@ -522,56 +522,44 @@ function SessionSignalFlow() {
       variants={fadeUp}
       initial="hidden"
       animate="visible"
-      className="glass-card p-5 sm:p-6"
+      className="glass-card px-4 py-3.5 sm:px-5 sm:py-4"
     >
       {/* Section Divider */}
-      <div className="mb-5 flex items-center gap-3">
+      <div className="mb-3 flex items-center gap-3">
         <span className="text-[10px] font-mono tracking-[0.2em] text-muted-foreground/50 uppercase">
-          SESSION SIGNAL FLOW
+          Signal Flow
         </span>
         <div className="h-px flex-1 bg-gradient-to-r from-white/[0.06] to-transparent" />
       </div>
 
-      {/* 3-Column Mini Stat Chips */}
-      <div className="mb-5 grid grid-cols-3 gap-2.5">
-        <div className="flex items-center gap-2 rounded-lg bg-emerald-500/[0.06] px-3 py-2">
-          <div className="h-2.5 w-2.5 rounded-sm bg-emerald-500" />
-          <span className="text-[10px] font-mono tracking-wider text-muted-foreground/45">
-            WIN
-          </span>
-          <span className="ml-auto font-mono text-xs font-bold tabular-nums text-emerald-400">
-            {stats.win}
-          </span>
+      {/* 3-Column Mini Stat Chips — compact */}
+      <div className="mb-3 flex items-center gap-4">
+        <div className="flex items-center gap-1.5">
+          <div className="h-2 w-2 rounded-sm bg-emerald-500" />
+          <span className="text-[10px] font-mono tabular-nums text-emerald-400 font-bold">{stats.win}</span>
         </div>
-        <div className="flex items-center gap-2 rounded-lg bg-amber-500/[0.06] px-3 py-2">
-          <div className="h-2.5 w-2.5 rounded-sm bg-amber-500" />
-          <span className="text-[10px] font-mono tracking-wider text-muted-foreground/45">
-            MTG
-          </span>
-          <span className="ml-auto font-mono text-xs font-bold tabular-nums text-amber-400">
-            {stats.mtg}
-          </span>
+        <div className="flex items-center gap-1.5">
+          <div className="h-2 w-2 rounded-sm bg-amber-500" />
+          <span className="text-[10px] font-mono tabular-nums text-amber-400 font-bold">{stats.mtg}</span>
         </div>
-        <div className="flex items-center gap-2 rounded-lg bg-rose-500/[0.06] px-3 py-2">
-          <div className="h-2.5 w-2.5 rounded-sm bg-rose-500" />
-          <span className="text-[10px] font-mono tracking-wider text-muted-foreground/45">
-            LOSS
-          </span>
-          <span className="ml-auto font-mono text-xs font-bold tabular-nums text-rose-400">
-            {stats.loss}
-          </span>
+        <div className="flex items-center gap-1.5">
+          <div className="h-2 w-2 rounded-sm bg-rose-500" />
+          <span className="text-[10px] font-mono tabular-nums text-rose-400 font-bold">{stats.loss}</span>
         </div>
+        <span className="ml-auto text-[10px] font-mono text-muted-foreground/25">
+          {stats.win + stats.mtg + stats.loss} total
+        </span>
       </div>
 
-      {/* Signal Blocks Grid */}
+      {/* Signal Blocks Grid — compact 16-col */}
       {gridBlocks.length > 0 ? (
-        <div className="grid grid-cols-8 gap-1">
+        <div className="grid gap-[3px]" style={{ gridTemplateColumns: 'repeat(16, 1fr)' }}>
           {gridBlocks.map((block, i) => {
             if (!block) {
               return (
                 <div
                   key={`empty-${i}`}
-                  className="aspect-square rounded-[3px] bg-white/[0.015]"
+                  className="aspect-square rounded-[2px] bg-white/[0.02]"
                 />
               );
             }
@@ -589,12 +577,12 @@ function SessionSignalFlow() {
                 initial={{ opacity: 0, scale: 0.4 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{
-                  delay: i * 0.012,
-                  duration: 0.2,
+                  delay: i * 0.008,
+                  duration: 0.15,
                   ease: [0.22, 0.61, 0.36, 1],
                 }}
                 className={cn(
-                  'aspect-square rounded-[3px]',
+                  'aspect-square rounded-[2px]',
                   colorClass
                 )}
               />
@@ -602,15 +590,10 @@ function SessionSignalFlow() {
           })}
         </div>
       ) : (
-        <div className="flex flex-col items-center justify-center py-12">
-          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.03]">
-            <Activity className="h-5 w-5 text-muted-foreground/15" />
-          </div>
-          <p className="text-[11px] font-mono text-muted-foreground/25">
+        <div className="flex flex-col items-center justify-center py-8">
+          <Activity className="h-4 w-4 text-muted-foreground/15 mb-2" />
+          <p className="text-[10px] font-mono text-muted-foreground/20">
             No signals yet this session
-          </p>
-          <p className="mt-1 text-[10px] font-mono text-muted-foreground/15">
-            Start the engine to begin tracking
           </p>
         </div>
       )}

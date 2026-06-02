@@ -47,11 +47,12 @@ export function DesktopSidebar() {
               <Zap className="h-5 w-5 text-emerald-400 drop-shadow-[0_0_6px_rgba(16,185,129,0.45)]" />
             </div>
             <div>
-              <p className="text-[14px] font-black tracking-[0.16em] text-white/90">
-                NEXUS<span className="text-emerald-400">TRADE</span>
+              <p className="text-[14px] font-black tracking-[0.14em] text-white/90">
+                Nexus<span className="text-emerald-400">Trade</span>{' '}
+                <span className="text-white/35">Pro</span>
               </p>
               <p className="text-[9px] font-mono tracking-[0.22em] text-white/20">
-                PRO TERMINAL
+                Signal Terminal
               </p>
             </div>
           </div>

@@ -23,11 +23,14 @@ export function Header() {
             <Zap className="h-[18px] w-[18px] text-emerald-400 drop-shadow-[0_0_6px_rgba(16,185,129,0.45)]" />
           </div>
           <div className="flex items-baseline gap-0.5 select-none">
-            <span className="text-[13px] font-black tracking-[0.18em] text-white/90">
-              NEXUS
+            <span className="text-[13px] font-black tracking-[0.16em] text-white/90">
+              Nexus
             </span>
-            <span className="text-[13px] font-black tracking-[0.18em] text-emerald-400">
-              TRADE
+            <span className="text-[13px] font-black tracking-[0.16em] text-emerald-400">
+              Trade
+            </span>
+            <span className="text-[13px] font-black tracking-[0.16em] text-white/40">
+              Pro
             </span>
           </div>
         </div>

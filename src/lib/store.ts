@@ -164,6 +164,7 @@ export const useStore = create<AppState>()(
       clearHistory: () => set({
         history: [],
         stats: { win: 0, mtg: 0, loss: 0 },
+        allTimeStats: { win: 0, mtg: 0, loss: 0 },
         sessionLog: [],
       }),
       resetSession: () => set({

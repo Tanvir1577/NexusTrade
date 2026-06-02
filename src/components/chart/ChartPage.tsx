@@ -4,9 +4,9 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 import { useStore, formatPair, isJPYPair, ALL_PAIRS } from '@/lib/store';
 import { Plus, Minus, RotateCcw } from 'lucide-react';
 
-/* ------------------------------------------------------------------ */
+/* ================================================================== */
 /*  Types                                                              */
-/* ------------------------------------------------------------------ */
+/* ================================================================== */
 
 interface OHLC {
   o: number;
@@ -21,7 +21,6 @@ interface ChartState {
   data: OHLC[];
   offset: number;
   scale: number;
-  priceScale: number;
   isDragging: boolean;
   dragStartX: number;
   dragStartOffset: number;
@@ -31,29 +30,37 @@ interface ChartState {
   crosshairVisible: boolean;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Constants                                                          */
-/* ------------------------------------------------------------------ */
+/* ================================================================== */
+/*  TradingView-style constants                                         */
+/* ================================================================== */
 
 const BG = '#0a0e17';
-const GRID = 'rgba(255,255,255,0.04)';
+const GRID_COLOR = 'rgba(255,255,255,0.035)';
+const GRID_COLOR_STRONG = 'rgba(255,255,255,0.06)';
 const BULL = '#10b981';
 const BEAR = '#ef4444';
-const CROSSHAIR_COLOR = 'rgba(200,215,230,0.25)';
-const PRICE_AXIS_W = 68;
-const TIME_AXIS_H = 24;
-const OHLC_BAR_H = 22;
-const HEADER_H = 40;
-const BASE_WIDTH = 6;
-const GAP = 2;
+const CROSSHAIR_COLOR = 'rgba(200,215,230,0.22)';
+
+const PRICE_AXIS_W = 70;
+const TIME_AXIS_H = 28;
+const OHLC_BAR_H = 24;
+const HEADER_H = 42;
+
+// Core candle geometry — TradingView proportions
+// At scale=1: each candle slot = BODY + GAP = 8px
+// Body fills ~75% of slot, gap fills ~12.5% each side
+const CANDLE_BODY = 6;
+const CANDLE_GAP = 2;
+const CANDLE_SLOT = CANDLE_BODY + CANDLE_GAP; // 8px per candle at scale 1
+
 const MOMENTUM_DECAY = 0.92;
-const MIN_SCALE = 0.3;
-const MAX_SCALE = 8;
+const MIN_SCALE = 0.4;
+const MAX_SCALE = 10;
 const REFRESH_MS = 5000;
 
-/* ------------------------------------------------------------------ */
+/* ================================================================== */
 /*  Component                                                          */
-/* ------------------------------------------------------------------ */
+/* ================================================================== */
 
 export default function ChartPage() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -69,7 +76,6 @@ export default function ChartPage() {
     data: [],
     offset: 0,
     scale: 1,
-    priceScale: 1,
     isDragging: false,
     dragStartX: 0,
     dragStartOffset: 0,
@@ -85,38 +91,31 @@ export default function ChartPage() {
   const pinchDistRef = useRef(0);
   const lastDragXRef = useRef(0);
   const lastDragTimeRef = useRef(0);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const chartRef = useRef(chart);
-  const firstLoadRef = useRef(true); // tracks first data load for scroll-to-end
+  const firstLoadRef = useRef(true);
   useEffect(() => { chartRef.current = chart; });
 
   const dec = isJPYPair(pair) ? 3 : 5;
 
   /* ---- helpers ---- */
-  const fmt = useCallback(
-    (v: number) => v.toFixed(dec),
-    [dec],
-  );
+  const fmt = useCallback((v: number) => v.toFixed(dec), [dec]);
 
   const clampOffset = useCallback(() => {
     const c = chartRef.current;
-    const cw = (BASE_WIDTH + GAP) * c.scale;
+    const slotW = CANDLE_SLOT * c.scale;
     const chartW = sizeRef.current.w - PRICE_AXIS_W;
 
-    // If container size not ready, skip
-    if (chartW <= 0) return c.offset;
+    if (chartW <= 0 || c.data.length === 0) return c.offset;
 
-    const totalW = c.data.length * cw;
+    const totalW = c.data.length * slotW;
     const minOffset = -(totalW - chartW);
-    const maxOffset = 0;
 
-    // First load: scroll to end (show latest candles on the right)
     if (firstLoadRef.current && totalW > chartW) {
-      c.offset = minOffset + 10; // 10px padding from right edge
+      c.offset = minOffset + 20;
       firstLoadRef.current = false;
     } else {
       if (c.offset < minOffset) c.offset = minOffset;
-      if (c.offset > maxOffset) c.offset = maxOffset;
+      if (c.offset > 0) c.offset = 0;
     }
     return c.offset;
   }, []);
@@ -139,7 +138,6 @@ export default function ChartPage() {
       }));
       setChart(prev => {
         if (prev.data.length === 0 && mapped.length > 0) {
-          // Mark first load — clampOffset will compute correct offset once size is ready
           firstLoadRef.current = true;
           return { ...prev, data: mapped, offset: 0 };
         }
@@ -147,15 +145,14 @@ export default function ChartPage() {
       });
       dirtyRef.current = true;
     } catch {
-      // silently ignore fetch errors
+      // silent
     }
   }, [pair]);
 
-  /* ---- auto-refresh (only when chart tab active) ---- */
+  /* ---- auto-refresh ---- */
   useEffect(() => {
     if (currentTab !== 'chart') return;
     const id = setInterval(fetchData, REFRESH_MS);
-    // Initial data fetch on mount
     fetchData();
     return () => clearInterval(id);
   }, [currentTab, fetchData]);
@@ -177,7 +174,9 @@ export default function ChartPage() {
     return () => ro.disconnect();
   }, []);
 
-  /* ---- draw function ---- */
+  /* ================================================================== */
+  /*  DRAW — TradingView-accurate candlestick rendering                  */
+  /* ================================================================== */
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -198,14 +197,14 @@ export default function ChartPage() {
     const c = chartRef.current;
     const { data, scale, offset, crosshairX, crosshairY, crosshairVisible } = c;
 
-    const chartLeft = 0;
+    /* ---- layout regions ---- */
     const chartTop = HEADER_H;
     const chartW = w - PRICE_AXIS_W;
     const chartH = h - HEADER_H - TIME_AXIS_H - OHLC_BAR_H;
-    const chartRight = chartLeft + chartW;
     const chartBottom = chartTop + chartH;
+    const chartRight = chartW;
 
-    /* background */
+    /* ---- clear ---- */
     ctx.fillStyle = BG;
     ctx.fillRect(0, 0, w, h);
 
@@ -213,307 +212,289 @@ export default function ChartPage() {
       ctx.fillStyle = 'rgba(255,255,255,0.15)';
       ctx.font = '13px monospace';
       ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
       ctx.fillText('Loading chart data...', w / 2, h / 2);
       return;
     }
 
-    const cw = (BASE_WIDTH + GAP) * scale;
-    const candleW = BASE_WIDTH * scale;
+    /* ---- scaled dimensions ---- */
+    const slotW = CANDLE_SLOT * scale;
+    const bodyW = CANDLE_BODY * scale;
 
-    /* price range from visible candles */
-    let visMin = Infinity;
-    let visMax = -Infinity;
+    /* ---- price range from ALL data (not just visible) for stable Y-axis ---- */
+    let priceLow = Infinity;
+    let priceHigh = -Infinity;
     for (let i = 0; i < data.length; i++) {
-      const cx = i * cw + offset;
-      if (cx + cw / 2 >= 0 && cx - cw / 2 <= chartW) {
-        if (data[i].l < visMin) visMin = data[i].l;
-        if (data[i].h > visMax) visMax = data[i].h;
-      }
+      if (data[i].l < priceLow) priceLow = data[i].l;
+      if (data[i].h > priceHigh) priceHigh = data[i].h;
     }
-    if (visMin === Infinity) {
-      visMin = data[0].l;
-      visMax = data[0].h;
-    }
-    const rawRange = visMax - visMin;
-    const padRange = Math.max(rawRange * 0.1, rawRange === 0 ? 0.001 : 0);
-    visMin -= padRange;
-    visMax += padRange;
-    const range = visMax - visMin;
+    // 6% padding per side — tight like TradingView
+    const rawRange = priceHigh - priceLow;
+    const pad = rawRange === 0 ? 0.0001 : rawRange * 0.06;
+    priceLow -= pad;
+    priceHigh += pad;
+    const priceRange = priceHigh - priceLow;
 
-    /* price-to-y mapping */
-    const priceToY = (p: number) => chartTop + (1 - (p - visMin) / range) * chartH;
+    /* ---- price → Y mapping ---- */
+    const priceToY = (p: number) =>
+      chartTop + (1 - (p - priceLow) / priceRange) * chartH;
 
-    /* ---- grid lines (horizontal) ---- */
-    ctx.strokeStyle = GRID;
-    ctx.lineWidth = 1;
-    const hLines = 7;
-    for (let i = 0; i <= hLines; i++) {
-      const y = Math.round(chartTop + (i / hLines) * chartH) + 0.5;
+    /* ---- horizontal grid lines + price labels ---- */
+    const gridRows = 8;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = '10px monospace';
+
+    for (let i = 0; i <= gridRows; i++) {
+      const frac = i / gridRows;
+      const y = Math.round(chartTop + frac * chartH) + 0.5;
+      const price = priceHigh - frac * priceRange;
+
+      // Grid line
+      ctx.strokeStyle = i === 0 || i === gridRows ? GRID_COLOR_STRONG : GRID_COLOR;
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(chartLeft, y);
+      ctx.moveTo(0, y);
       ctx.lineTo(chartRight, y);
       ctx.stroke();
+
+      // Price label
+      ctx.fillStyle = 'rgba(150,175,190,0.45)';
+      ctx.fillText(fmt(price), chartRight + 8, y);
     }
 
-    /* ---- grid lines (vertical) ---- */
-    const vStep = Math.max(60, Math.round(80 * scale));
-    const vStart = Math.ceil(-offset / vStep) * vStep;
-    for (let x = vStart; x < chartW; x += vStep) {
-      const px = Math.round(x) + 0.5;
-      ctx.beginPath();
-      ctx.moveTo(px, chartTop);
-      ctx.lineTo(px, chartBottom);
-      ctx.stroke();
+    /* ---- vertical grid + time labels ---- */
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.font = '10px monospace';
+
+    // Space time labels every ~80px of chart width
+    const timeStepPx = 80;
+    const startSlot = Math.max(0, Math.floor(-offset / slotW));
+    const endSlot = Math.min(data.length, Math.ceil((chartW - offset) / slotW));
+
+    for (let s = startSlot; s < endSlot; s++) {
+      const cx = s * slotW + offset + slotW / 2;
+      // Place label when crossing a timeStepPx boundary
+      const prevBoundary = Math.floor((cx - chartRight + timeStepPx) / timeStepPx);
+      const currBoundary = Math.floor((cx - chartRight) / timeStepPx);
+      if (cx >= 0 && cx <= chartRight && prevBoundary !== currBoundary) {
+        // Vertical grid
+        const px = Math.round(cx) + 0.5;
+        ctx.strokeStyle = GRID_COLOR;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(px, chartTop);
+        ctx.lineTo(px, chartBottom);
+        ctx.stroke();
+        // Time label
+        try {
+          const d = new Date(data[s].t);
+          ctx.fillStyle = 'rgba(150,175,190,0.45)';
+          ctx.fillText(tzTime(d), cx, chartBottom + 6);
+        } catch { /* ignore */ }
+      }
     }
 
-    /* ---- candles (TradingView-style rendering) ---- */
+    /* ================================================================ */
+    /*  CANDLESTICKS — TradingView rendering                            */
+    /* ================================================================ */
     for (let i = 0; i < data.length; i++) {
       const candle = data[i];
-      const cx = i * cw + offset + candleW / 2;
-      if (cx + candleW / 2 < 0 || cx - candleW / 2 > chartW) continue;
+      const cx = i * slotW + offset + slotW / 2; // center of slot
+      if (cx + slotW / 2 < 0 || cx - slotW / 2 > chartW) continue;
 
       const bull = candle.cl >= candle.o;
       const color = bull ? BULL : BEAR;
-      const alpha = candle.complete ? 1 : 0.55;
+      const alpha = candle.complete ? 1 : 0.5;
       ctx.globalAlpha = alpha;
 
-      const yHigh = priceToY(candle.h);
-      const yLow = priceToY(candle.l);
-      const yOpen = priceToY(candle.o);
-      const yClose = priceToY(candle.cl);
+      const yH = priceToY(candle.h);
+      const yL = priceToY(candle.l);
+      const yO = priceToY(candle.o);
+      const yC = priceToY(candle.cl);
 
-      /* Wick: always 1px hairline, exactly like TradingView */
+      /* --- 1px wick from High to Low (body painted on top) --- */
       ctx.strokeStyle = color;
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(cx, yHigh);
-      ctx.lineTo(cx, yLow);
+      ctx.moveTo(Math.round(cx) + 0.5, Math.round(yH) + 0.5);
+      ctx.lineTo(Math.round(cx) + 0.5, Math.round(yL) + 0.5);
       ctx.stroke();
 
-      /* Body: ~60% of slot width, centered — TradingView proportion */
-      const bodyWidth = Math.max(Math.round(candleW * 0.6), 1);
-      const bodyLeft = cx - bodyWidth / 2;
+      /* --- Body: filled rectangle --- */
+      // Bullish: bodyTop = Close (higher price = lower Y), bodyBot = Open
+      // Bearish: bodyTop = Open (higher price = lower Y), bodyBot = Close
+      const bodyTop = bull ? yC : yO;
+      const bodyBot = bull ? yO : yC;
+      const bodyH = Math.max(Math.round(Math.abs(bodyTop - bodyBot)), 1);
 
-      if (bull) {
-        /* BULLISH: Close > Open
-           Body top = Close (higher price = lower Y)
-           Body bottom = Open (lower price = higher Y) */
-        const bodyTop = yClose;
-        const bodyBot = yOpen;
-        const bodyH = Math.max(bodyBot - bodyTop, 1); // 1px for doji
+      const bx = Math.round(cx - bodyW / 2) + 0.5;
+      const by = Math.round(Math.min(bodyTop, bodyBot)) + 0.5;
 
-        ctx.fillStyle = color;
-        ctx.fillRect(
-          Math.round(bodyLeft) + 0.5,
-          Math.round(bodyTop) + 0.5,
-          bodyWidth,
-          Math.round(bodyH)
-        );
-      } else {
-        /* BEARISH: Open > Close
-           Body top = Open (higher price = lower Y)
-           Body bottom = Close (lower price = higher Y) */
-        const bodyTop = yOpen;
-        const bodyBot = yClose;
-        const bodyH = Math.max(bodyBot - bodyTop, 1); // 1px for doji
-
-        ctx.fillStyle = color;
-        ctx.fillRect(
-          Math.round(bodyLeft) + 0.5,
-          Math.round(bodyTop) + 0.5,
-          bodyWidth,
-          Math.round(bodyH)
-        );
-      }
+      ctx.fillStyle = color;
+      ctx.fillRect(bx, by, Math.round(bodyW), bodyH);
 
       ctx.globalAlpha = 1;
     }
 
     /* ---- last price line ---- */
-    const lastCandle = data[data.length - 1];
-    if (lastCandle) {
-      const lastY = priceToY(lastCandle.cl);
-      const isBull = lastCandle.cl >= lastCandle.o;
-      const lineColor = isBull ? BULL : BEAR;
+    const last = data[data.length - 1];
+    if (last) {
+      const yLast = priceToY(last.cl);
+      const isBull = last.cl >= last.o;
+      const lc = isBull ? BULL : BEAR;
 
       ctx.save();
-      ctx.setLineDash([4, 4]);
-      ctx.strokeStyle = lineColor;
+      ctx.setLineDash([3, 3]);
+      ctx.strokeStyle = lc;
       ctx.lineWidth = 1;
-      ctx.globalAlpha = 0.7;
+      ctx.globalAlpha = 0.6;
       ctx.beginPath();
-      ctx.moveTo(chartLeft, lastY);
-      ctx.lineTo(chartRight, lastY);
+      ctx.moveTo(0, Math.round(yLast) + 0.5);
+      ctx.lineTo(chartRight, Math.round(yLast) + 0.5);
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.globalAlpha = 1;
 
-      /* price tag on axis */
-      ctx.fillStyle = lineColor;
-      const tagW = PRICE_AXIS_W - 4;
+      // Price tag on right axis
+      ctx.fillStyle = lc;
+      const tagW = PRICE_AXIS_W - 6;
       const tagH = 18;
-      const tagX = chartRight + 2;
-      const tagY = lastY - tagH / 2;
-      const radius = 4;
+      const tagX = chartRight + 3;
+      const tagY = yLast - tagH / 2;
+      const r = 3;
       ctx.beginPath();
-      ctx.moveTo(tagX + radius, tagY);
-      ctx.lineTo(tagX + tagW - radius, tagY);
-      ctx.quadraticCurveTo(tagX + tagW, tagY, tagX + tagW, tagY + radius);
-      ctx.lineTo(tagX + tagW, tagY + tagH - radius);
-      ctx.quadraticCurveTo(tagX + tagW, tagY + tagH, tagX + tagW - radius, tagY + tagH);
-      ctx.lineTo(tagX + radius, tagY + tagH);
-      ctx.quadraticCurveTo(tagX, tagY + tagH, tagX, tagY + tagH - radius);
-      ctx.lineTo(tagX, tagY + radius);
-      ctx.quadraticCurveTo(tagX, tagY, tagX + radius, tagY);
+      ctx.moveTo(tagX + r, tagY);
+      ctx.lineTo(tagX + tagW - r, tagY);
+      ctx.quadraticCurveTo(tagX + tagW, tagY, tagX + tagW, tagY + r);
+      ctx.lineTo(tagX + tagW, tagY + tagH - r);
+      ctx.quadraticCurveTo(tagX + tagW, tagY + tagH, tagX + tagW - r, tagY + tagH);
+      ctx.lineTo(tagX + r, tagY + tagH);
+      ctx.quadraticCurveTo(tagX, tagY + tagH, tagX, tagY + tagH - r);
+      ctx.lineTo(tagX, tagY + r);
+      ctx.quadraticCurveTo(tagX, tagY, tagX + r, tagY);
       ctx.closePath();
       ctx.fill();
-
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 10px monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(fmt(lastCandle.cl), tagX + tagW / 2, lastY);
+      ctx.fillText(fmt(last.cl), tagX + tagW / 2, yLast);
       ctx.restore();
     }
 
-    /* ---- price axis labels ---- */
-    ctx.fillStyle = 'rgba(150,175,190,0.5)';
-    ctx.font = '10px monospace';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    for (let i = 0; i <= hLines; i++) {
-      const frac = i / hLines;
-      const price = visMax - frac * range;
-      const y = chartTop + frac * chartH;
-      ctx.fillText(fmt(price), chartRight + 6, y);
-    }
-
-    /* ---- time axis labels ---- */
-    ctx.fillStyle = 'rgba(150,175,190,0.5)';
-    ctx.font = '10px monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    const timeY = chartBottom + 4;
-    for (let x = vStart; x < chartW; x += vStep) {
-      const idx = Math.round((x - offset) / cw);
-      if (idx >= 0 && idx < data.length) {
-        try {
-          const d = new Date(data[idx].t);
-          ctx.fillText(tzTime(d), x, timeY);
-        } catch {
-          // ignore parse errors
-        }
-      }
-    }
-
-    /* ---- time axis bg ---- */
+    /* ---- bottom info bar background ---- */
     ctx.fillStyle = 'rgba(10,14,23,0.95)';
     ctx.fillRect(0, chartBottom, w, TIME_AXIS_H + OHLC_BAR_H);
 
     /* ---- OHLC info bar ---- */
-    let hoveredCandle: OHLC | null = null;
+    let hovered: OHLC | null = null;
     if (crosshairVisible && data.length > 0) {
-      const idx = Math.round((crosshairX - offset) / cw);
-      if (idx >= 0 && idx < data.length) {
-        hoveredCandle = data[idx];
-      }
+      const idx = Math.round((crosshairX - offset) / slotW);
+      if (idx >= 0 && idx < data.length) hovered = data[idx];
     }
-    const infoCandle = hoveredCandle || lastCandle;
+    const info = hovered || last;
     const ohlcY = chartBottom + TIME_AXIS_H + 2;
 
-    if (infoCandle) {
+    if (info) {
       ctx.font = '10px monospace';
       ctx.textBaseline = 'middle';
-      let xPos = 8;
+      const cy = ohlcY + OHLC_BAR_H / 2;
+      let xp = 10;
 
-      ctx.fillStyle = BULL;
+      const isBullInfo = info.cl >= info.o;
+      const infoColor = isBullInfo ? BULL : BEAR;
+
+      // Pair
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
       ctx.textAlign = 'left';
-      ctx.fillText(`O ${fmt(infoCandle.o)}`, xPos, ohlcY + OHLC_BAR_H / 2);
-      xPos += 80;
+      ctx.fillText(formatPair(pair), xp, cy);
+      xp += ctx.measureText(formatPair(pair)).width + 14;
 
+      // O
+      ctx.fillStyle = infoColor;
+      ctx.fillText(`O ${fmt(info.o)}`, xp, cy);
+      xp += 72;
+
+      // H
       ctx.fillStyle = BULL;
-      ctx.fillText(`H ${fmt(infoCandle.h)}`, xPos, ohlcY + OHLC_BAR_H / 2);
-      xPos += 80;
+      ctx.fillText(`H ${fmt(info.h)}`, xp, cy);
+      xp += 72;
 
+      // L
       ctx.fillStyle = BEAR;
-      ctx.fillText(`L ${fmt(infoCandle.l)}`, xPos, ohlcY + OHLC_BAR_H / 2);
-      xPos += 80;
+      ctx.fillText(`L ${fmt(info.l)}`, xp, cy);
+      xp += 72;
 
-      const isBullC = infoCandle.cl >= infoCandle.o;
-      ctx.fillStyle = isBullC ? BULL : BEAR;
-      ctx.fillText(`C ${fmt(infoCandle.cl)}`, xPos, ohlcY + OHLC_BAR_H / 2);
-      xPos += 80;
+      // C
+      ctx.fillStyle = infoColor;
+      ctx.fillText(`C ${fmt(info.cl)}`, xp, cy);
+      xp += 72;
 
-      if (infoCandle.t) {
+      // Time
+      if (info.t) {
         try {
-          const td = new Date(infoCandle.t);
-          ctx.fillStyle = 'rgba(150,175,190,0.4)';
+          const td = new Date(info.t);
+          ctx.fillStyle = 'rgba(150,175,190,0.3)';
           ctx.textAlign = 'right';
-          ctx.fillText(`M1  ${tzTime(td)} UTC`, w - PRICE_AXIS_W - 8, ohlcY + OHLC_BAR_H / 2);
-        } catch {
-          // ignore
-        }
+          ctx.fillText(`M1 · ${tzTime(td)}`, w - PRICE_AXIS_W - 10, cy);
+        } catch { /* ignore */ }
       }
     }
 
     /* ---- crosshair ---- */
     if (
       crosshairVisible &&
-      crosshairX >= chartLeft &&
-      crosshairX <= chartRight &&
-      crosshairY >= chartTop &&
-      crosshairY <= chartBottom
+      crosshairX >= 0 && crosshairX <= chartRight &&
+      crosshairY >= chartTop && crosshairY <= chartBottom
     ) {
       ctx.save();
-      ctx.setLineDash([4, 3]);
+      ctx.setLineDash([3, 3]);
       ctx.strokeStyle = CROSSHAIR_COLOR;
       ctx.lineWidth = 1;
 
+      // Horizontal
       ctx.beginPath();
-      ctx.moveTo(chartLeft, crosshairY);
-      ctx.lineTo(chartRight, crosshairY);
+      ctx.moveTo(0, Math.round(crosshairY) + 0.5);
+      ctx.lineTo(chartRight, Math.round(crosshairY) + 0.5);
       ctx.stroke();
 
+      // Vertical
       ctx.beginPath();
-      ctx.moveTo(crosshairX, chartTop);
-      ctx.lineTo(crosshairX, chartBottom);
+      ctx.moveTo(Math.round(crosshairX) + 0.5, chartTop);
+      ctx.lineTo(Math.round(crosshairX) + 0.5, chartBottom);
       ctx.stroke();
 
       ctx.setLineDash([]);
 
-      /* price label on crosshair Y */
-      const crossPrice = visMax - ((crosshairY - chartTop) / chartH) * range;
-      ctx.fillStyle = 'rgba(20,30,50,0.85)';
-      const lblW = 56;
-      const lblH = 16;
-      ctx.fillRect(chartRight + 2, crosshairY - lblH / 2, lblW, lblH);
+      // Price label on Y axis
+      const crossPrice = priceHigh - ((crosshairY - chartTop) / chartH) * priceRange;
+      ctx.fillStyle = 'rgba(20,30,50,0.9)';
+      ctx.fillRect(chartRight + 3, crosshairY - 9, PRICE_AXIS_W - 6, 18);
       ctx.fillStyle = 'rgba(200,215,230,0.8)';
       ctx.font = '10px monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(fmt(crossPrice), chartRight + 2 + lblW / 2, crosshairY);
-
+      ctx.fillText(fmt(crossPrice), chartRight + PRICE_AXIS_W / 2, crosshairY);
       ctx.restore();
 
-      /* tooltip */
+      // Tooltip
       const tooltip = tooltipRef.current;
-      if (tooltip && hoveredCandle) {
-        const bull = hoveredCandle.cl >= hoveredCandle.o;
-        const color = bull ? BULL : BEAR;
+      if (tooltip && hovered) {
+        const tBull = hovered.cl >= hovered.o;
+        const tColor = tBull ? BULL : BEAR;
         tooltip.innerHTML = `
-          <div style="color:${color};font-weight:bold;font-size:11px;margin-bottom:2px;">
-            ${formatPair(pair)}
+          <div style="color:${tColor};font-weight:bold;font-size:11px;margin-bottom:2px">${formatPair(pair)}</div>
+          <div style="color:rgba(200,215,230,0.7);font-size:10px;line-height:1.7">
+            <span style="color:#888">O</span> ${fmt(hovered.o)}
+            <span style="color:#888;margin-left:6px">H</span> ${fmt(hovered.h)}<br/>
+            <span style="color:#888">L</span> ${fmt(hovered.l)}
+            <span style="color:#888;margin-left:6px">C</span> ${fmt(hovered.cl)}
           </div>
-          <div style="color:rgba(200,215,230,0.7);font-size:10px;line-height:1.6;">
-            <span style="color:#aaa">O</span> ${fmt(hoveredCandle.o)}
-            <span style="color:#aaa;margin-left:6px">H</span> ${fmt(hoveredCandle.h)}<br/>
-            <span style="color:#aaa">L</span> ${fmt(hoveredCandle.l)}
-            <span style="color:#aaa;margin-left:6px">C</span> ${fmt(hoveredCandle.cl)}
-          </div>
-          <div style="color:rgba(150,175,190,0.4);font-size:9px;margin-top:2px;">
-            ${hoveredCandle.t ? new Date(hoveredCandle.t).toISOString().slice(0, 19).replace('T', ' ') : ''}
-          </div>
-        `;
+          <div style="color:rgba(150,175,190,0.35);font-size:9px;margin-top:2px">
+            ${hovered.t ? new Date(hovered.t).toISOString().slice(0, 19).replace('T', ' ') : ''}
+          </div>`;
         let tx = crosshairX + 16;
         let ty = crosshairY - 60;
         if (tx + 140 > chartRight) tx = crosshairX - 150;
@@ -527,9 +508,17 @@ export default function ChartPage() {
       if (tooltip) tooltip.style.display = 'none';
     }
 
-    /* ---- header bg ---- */
-    ctx.fillStyle = 'rgba(10,14,23,0.92)';
+    /* ---- header bg (painted last so it covers) ---- */
+    ctx.fillStyle = 'rgba(10,14,23,0.95)';
     ctx.fillRect(0, 0, w, HEADER_H);
+
+    // Separator line
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, HEADER_H - 0.5);
+    ctx.lineTo(w, HEADER_H - 0.5);
+    ctx.stroke();
   }, [pair, dec, fmt, tzTime]);
 
   /* ---- RAF loop ---- */
@@ -542,7 +531,6 @@ export default function ChartPage() {
         setChart(prev => ({ ...prev, offset: chartRef.current.offset }));
         dirtyRef.current = true;
       }
-
       if (dirtyRef.current) {
         dirtyRef.current = false;
         draw();
@@ -553,18 +541,15 @@ export default function ChartPage() {
     return () => cancelAnimationFrame(rafRef.current);
   }, [clampOffset, draw]);
 
-  /* ---- sync clampOffset ---- */
+  /* ---- clamp on data/scale change ---- */
   useEffect(() => {
     clampOffset();
     dirtyRef.current = true;
   }, [chart.data, chart.scale, clampOffset]);
 
-  /* ---- mark dirty when state changes ---- */
-  useEffect(() => {
-    dirtyRef.current = true;
-  }, [chart]);
+  useEffect(() => { dirtyRef.current = true; }, [chart]);
 
-  /* ---- mouse / touch handlers ---- */
+  /* ---- interaction handlers ---- */
   const getPos = useCallback((e: React.MouseEvent | MouseEvent) => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
@@ -576,15 +561,12 @@ export default function ChartPage() {
     e.preventDefault();
     const { x } = getPos(e.nativeEvent);
     const chartW = sizeRef.current.w - PRICE_AXIS_W;
-    const mouseRatio = Math.max(0, Math.min(1, x / chartW));
-
+    const ratio = Math.max(0, Math.min(1, x / chartW));
     setChart(prev => {
-      const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
-      const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, prev.scale * zoomFactor));
-      const stepW = BASE_WIDTH + GAP;
-      const newTotalW = prev.data.length * stepW * newScale;
-      const newOffset = x - mouseRatio * newTotalW;
-      return { ...prev, scale: newScale, offset: newOffset };
+      const factor = e.deltaY > 0 ? 0.9 : 1.1;
+      const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, prev.scale * factor));
+      const newTotalW = prev.data.length * CANDLE_SLOT * newScale;
+      return { ...prev, scale: newScale, offset: x - ratio * newTotalW };
     });
     dirtyRef.current = true;
   }, [getPos]);
@@ -592,11 +574,7 @@ export default function ChartPage() {
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     const pos = getPos(e);
     setChart(prev => ({
-      ...prev,
-      isDragging: true,
-      dragStartX: pos.x,
-      dragStartOffset: prev.offset,
-      velocity: 0,
+      ...prev, isDragging: true, dragStartX: pos.x, dragStartOffset: prev.offset, velocity: 0,
     }));
     lastDragXRef.current = pos.x;
     lastDragTimeRef.current = Date.now();
@@ -607,80 +585,40 @@ export default function ChartPage() {
     setChart(prev => {
       if (prev.isDragging) {
         const dx = pos.x - prev.dragStartX;
-        const now = Date.now();
-        const dt = now - lastDragTimeRef.current;
-        if (dt > 0) {
-          const newVel = (pos.x - lastDragXRef.current) / dt * 16;
-          chartRef.current.velocity = newVel;
-        }
+        const dt = Date.now() - lastDragTimeRef.current;
+        if (dt > 0) chartRef.current.velocity = (pos.x - lastDragXRef.current) / dt * 16;
         lastDragXRef.current = pos.x;
-        lastDragTimeRef.current = now;
-        return {
-          ...prev,
-          offset: prev.dragStartOffset + dx,
-          crosshairX: pos.x,
-          crosshairY: pos.y,
-          crosshairVisible: true,
-        };
+        lastDragTimeRef.current = Date.now();
+        return { ...prev, offset: prev.dragStartOffset + dx, crosshairX: pos.x, crosshairY: pos.y, crosshairVisible: true };
       }
-      const cTop = HEADER_H;
-      const cH = sizeRef.current.h - HEADER_H - TIME_AXIS_H - OHLC_BAR_H;
-      const cBottom = cTop + cH;
-      const visible = pos.y >= cTop && pos.y <= cBottom;
-      return {
-        ...prev,
-        crosshairX: pos.x,
-        crosshairY: pos.y,
-        crosshairVisible: visible,
-      };
+      const vis = pos.y >= HEADER_H && pos.y <= sizeRef.current.h - TIME_AXIS_H - OHLC_BAR_H;
+      return { ...prev, crosshairX: pos.x, crosshairY: pos.y, crosshairVisible: vis };
     });
     dirtyRef.current = true;
   }, [getPos]);
 
-  const onMouseUp = useCallback(() => {
-    setChart(prev => ({ ...prev, isDragging: false }));
-  }, []);
-
+  const onMouseUp = useCallback(() => { setChart(prev => ({ ...prev, isDragging: false })); }, []);
   const onMouseLeave = useCallback(() => {
-    setChart(prev => ({
-      ...prev,
-      isDragging: false,
-      crosshairVisible: false,
-    }));
-    const tooltip = tooltipRef.current;
-    if (tooltip) tooltip.style.display = 'none';
+    setChart(prev => ({ ...prev, isDragging: false, crosshairVisible: false }));
+    if (tooltipRef.current) tooltipRef.current.style.display = 'none';
     dirtyRef.current = true;
   }, []);
 
-  /* ---- touch handlers ---- */
-  const getTouchDist = (touches: React.TouchList) => {
-    const dx = touches[0].clientX - touches[1].clientX;
-    const dy = touches[0].clientY - touches[1].clientY;
+  /* ---- touch ---- */
+  const touchDist = (t: React.TouchList) => {
+    const dx = t[0].clientX - t[1].clientX;
+    const dy = t[0].clientY - t[1].clientY;
     return Math.sqrt(dx * dx + dy * dy);
   };
 
   const onTouchStart = useCallback((e: React.TouchEvent) => {
     e.preventDefault();
-    if (e.touches.length === 2) {
-      pinchDistRef.current = getTouchDist(e.touches);
-      return;
-    }
+    if (e.touches.length === 2) { pinchDistRef.current = touchDist(e.touches); return; }
     if (e.touches.length === 1) {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      const x = e.touches[0].clientX - rect.left;
-      const y = e.touches[0].clientY - rect.top;
-      setChart(prev => ({
-        ...prev,
-        isDragging: true,
-        dragStartX: x,
-        dragStartOffset: prev.offset,
-        velocity: 0,
-        crosshairX: x,
-        crosshairY: y,
-        crosshairVisible: true,
-      }));
+      const r = canvasRef.current?.getBoundingClientRect();
+      if (!r) return;
+      const x = e.touches[0].clientX - r.left, y = e.touches[0].clientY - r.top;
+      setChart(prev => ({ ...prev, isDragging: true, dragStartX: x, dragStartOffset: prev.offset, velocity: 0, crosshairX: x, crosshairY: y, crosshairVisible: true }));
       lastDragXRef.current = x;
       lastDragTimeRef.current = Date.now();
     }
@@ -689,38 +627,24 @@ export default function ChartPage() {
   const onTouchMove = useCallback((e: React.TouchEvent) => {
     e.preventDefault();
     if (e.touches.length === 2 && pinchDistRef.current > 0) {
-      const dist = getTouchDist(e.touches);
-      const ratio = dist / pinchDistRef.current;
-      pinchDistRef.current = dist;
-      setChart(prev => {
-        const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, prev.scale * ratio));
-        return { ...prev, scale: newScale };
-      });
+      const d = touchDist(e.touches);
+      const ratio = d / pinchDistRef.current;
+      pinchDistRef.current = d;
+      setChart(prev => ({ ...prev, scale: Math.max(MIN_SCALE, Math.min(MAX_SCALE, prev.scale * ratio)) }));
       dirtyRef.current = true;
       return;
     }
     if (e.touches.length === 1) {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      const x = e.touches[0].clientX - rect.left;
-      const y = e.touches[0].clientY - rect.top;
-      const now = Date.now();
-      const dt = now - lastDragTimeRef.current;
+      const r = canvasRef.current?.getBoundingClientRect();
+      if (!r) return;
+      const x = e.touches[0].clientX - r.left, y = e.touches[0].clientY - r.top;
+      const dt = Date.now() - lastDragTimeRef.current;
       setChart(prev => {
-        if (prev.isDragging) {
-          const dx = x - prev.dragStartX;
-          if (dt > 0) {
-            chartRef.current.velocity = (x - lastDragXRef.current) / dt * 16;
-          }
+        if (prev.isDragging && dt > 0) {
+          chartRef.current.velocity = (x - lastDragXRef.current) / dt * 16;
           lastDragXRef.current = x;
-          lastDragTimeRef.current = now;
-          return {
-            ...prev,
-            offset: prev.dragStartOffset + dx,
-            crosshairX: x,
-            crosshairY: y,
-          };
+          lastDragTimeRef.current = Date.now();
+          return { ...prev, offset: prev.dragStartOffset + (x - prev.dragStartX), crosshairX: x, crosshairY: y };
         }
         return { ...prev, crosshairX: x, crosshairY: y };
       });
@@ -732,38 +656,25 @@ export default function ChartPage() {
     if (e.touches.length < 2) pinchDistRef.current = 0;
     if (e.touches.length === 0) {
       setChart(prev => ({ ...prev, isDragging: false, crosshairVisible: false }));
-      const tooltip = tooltipRef.current;
-      if (tooltip) tooltip.style.display = 'none';
+      if (tooltipRef.current) tooltipRef.current.style.display = 'none';
       dirtyRef.current = true;
     }
   }, []);
 
   /* ---- zoom buttons ---- */
-  const zoomIn = useCallback(() => {
-    setChart(prev => ({ ...prev, scale: Math.min(MAX_SCALE, prev.scale * 1.3) }));
-    dirtyRef.current = true;
-  }, []);
-
-  const zoomOut = useCallback(() => {
-    setChart(prev => ({ ...prev, scale: Math.max(MIN_SCALE, prev.scale / 1.3) }));
-    dirtyRef.current = true;
-  }, []);
-
+  const zoomIn = useCallback(() => { setChart(prev => ({ ...prev, scale: Math.min(MAX_SCALE, prev.scale * 1.3) })); dirtyRef.current = true; }, []);
+  const zoomOut = useCallback(() => { setChart(prev => ({ ...prev, scale: Math.max(MIN_SCALE, prev.scale / 1.3) })); dirtyRef.current = true; }, []);
   const zoomReset = useCallback(() => {
     setChart(prev => {
-      const stepW = (BASE_WIDTH + GAP) * 1; // at scale 1
-      const chartW = sizeRef.current.w - PRICE_AXIS_W;
-      const totalW = prev.data.length * stepW;
-      const endOffset = Math.min(0, -(totalW - chartW + 10));
-      return { ...prev, scale: 1, offset: endOffset, velocity: 0 };
+      const tw = prev.data.length * CANDLE_SLOT;
+      const cw = sizeRef.current.w - PRICE_AXIS_W;
+      return { ...prev, scale: 1, offset: Math.min(0, -(tw - cw + 20)), velocity: 0 };
     });
     dirtyRef.current = true;
   }, []);
 
   const lastPrice = chart.data.length > 0 ? chart.data[chart.data.length - 1].cl : 0;
-  const isBullLast = chart.data.length > 0
-    ? chart.data[chart.data.length - 1].cl >= chart.data[chart.data.length - 1].o
-    : true;
+  const isBullLast = chart.data.length > 0 ? chart.data[chart.data.length - 1].cl >= chart.data[chart.data.length - 1].o : true;
 
   return (
     <div
@@ -779,111 +690,47 @@ export default function ChartPage() {
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
     >
-      {/* Chart header bar */}
+      {/* Header bar */}
       <div
         className="absolute top-0 left-0 right-0 z-20 flex items-center gap-3 px-3"
-        style={{
-          height: HEADER_H,
-          background: 'rgba(10,14,23,0.92)',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
-        }}
+        style={{ height: HEADER_H, background: 'rgba(10,14,23,0.95)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}
       >
-        {/* Pair name + live price */}
         <div className="flex items-center gap-2">
-          <span className="font-mono font-bold text-lg text-emerald-400">
-            {formatPair(pair)}
-          </span>
-          <span
-            className="font-mono font-bold text-lg"
-            style={{ color: isBullLast ? BULL : BEAR }}
-          >
+          <span className="font-mono font-bold text-lg text-emerald-400">{formatPair(pair)}</span>
+          <span className="font-mono font-bold text-lg" style={{ color: isBullLast ? BULL : BEAR }}>
             {lastPrice > 0 ? fmt(lastPrice) : '---'}
           </span>
-          <span className="rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-mono px-2 py-0.5">
-            M1
-          </span>
+          <span className="rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-mono px-2 py-0.5">M1</span>
         </div>
-
         <div className="flex-1" />
-
-        {/* Pair selector dropdown */}
         <select
           value={pair}
-          onChange={e => {
-            setChartPair(e.target.value);
-            firstLoadRef.current = true;
-            setChart(prev => ({ ...prev, data: [], offset: 0, velocity: 0 }));
-            dirtyRef.current = true;
-          }}
+          onChange={e => { setChartPair(e.target.value); firstLoadRef.current = true; setChart(prev => ({ ...prev, data: [], offset: 0, velocity: 0 })); dirtyRef.current = true; }}
           className="rounded-lg px-3 py-1.5 text-sm font-mono text-white outline-none cursor-pointer"
-          style={{
-            background: '#0c1220',
-            border: '1px solid rgba(255,255,255,0.08)',
-          }}
+          style={{ background: '#0c1220', border: '1px solid rgba(255,255,255,0.08)' }}
         >
-          {ALL_PAIRS.map(p => (
-            <option key={p} value={p}>
-              {formatPair(p)}
-            </option>
-          ))}
+          {ALL_PAIRS.map(p => <option key={p} value={p}>{formatPair(p)}</option>)}
         </select>
-
-        {/* Zoom buttons */}
         <div className="flex items-center gap-1">
-          <button
-            onClick={zoomIn}
-            className="rounded-lg flex items-center justify-center text-emerald-400 hover:bg-white/[0.06] transition-colors"
-            style={{
-              width: 32,
-              height: 32,
-              background: 'rgba(12,18,32,0.9)',
-              border: '1px solid rgba(255,255,255,0.08)',
-            }}
-          >
+          <button onClick={zoomIn} className="rounded-lg flex items-center justify-center text-emerald-400 hover:bg-white/[0.06] transition-colors"
+            style={{ width: 32, height: 32, background: 'rgba(12,18,32,0.9)', border: '1px solid rgba(255,255,255,0.08)' }}>
             <Plus size={14} />
           </button>
-          <button
-            onClick={zoomOut}
-            className="rounded-lg flex items-center justify-center text-emerald-400 hover:bg-white/[0.06] transition-colors"
-            style={{
-              width: 32,
-              height: 32,
-              background: 'rgba(12,18,32,0.9)',
-              border: '1px solid rgba(255,255,255,0.08)',
-            }}
-          >
+          <button onClick={zoomOut} className="rounded-lg flex items-center justify-center text-emerald-400 hover:bg-white/[0.06] transition-colors"
+            style={{ width: 32, height: 32, background: 'rgba(12,18,32,0.9)', border: '1px solid rgba(255,255,255,0.08)' }}>
             <Minus size={14} />
           </button>
-          <button
-            onClick={zoomReset}
-            className="rounded-lg flex items-center justify-center text-emerald-400 hover:bg-white/[0.06] transition-colors"
-            style={{
-              width: 32,
-              height: 32,
-              background: 'rgba(12,18,32,0.9)',
-              border: '1px solid rgba(255,255,255,0.08)',
-            }}
-          >
+          <button onClick={zoomReset} className="rounded-lg flex items-center justify-center text-emerald-400 hover:bg-white/[0.06] transition-colors"
+            style={{ width: 32, height: 32, background: 'rgba(12,18,32,0.9)', border: '1px solid rgba(255,255,255,0.08)' }}>
             <RotateCcw size={14} />
           </button>
         </div>
       </div>
 
-      {/* Canvas */}
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
 
-      {/* Floating tooltip */}
-      <div
-        ref={tooltipRef}
-        className="absolute z-30 pointer-events-none rounded-lg px-2.5 py-2"
-        style={{
-          display: 'none',
-          background: 'rgba(12,18,32,0.92)',
-          border: '1px solid rgba(255,255,255,0.08)',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
-          whiteSpace: 'nowrap',
-        }}
-      />
+      <div ref={tooltipRef} className="absolute z-30 pointer-events-none rounded-lg px-2.5 py-2"
+        style={{ display: 'none', background: 'rgba(12,18,32,0.92)', border: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 4px 16px rgba(0,0,0,0.4)', whiteSpace: 'nowrap' }} />
     </div>
   );
 }

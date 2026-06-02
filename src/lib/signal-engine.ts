@@ -42,8 +42,11 @@ function parseCandles(candles: CandleData[]): OHLC[] {
 
 function ema(arr: number[], period: number): number {
   const k = 2 / (period + 1);
-  let e = arr[0];
-  for (let i = 1; i < arr.length; i++) {
+  // Proper EMA: seed with SMA of first `period` values
+  let e = arr.length >= period
+    ? arr.slice(0, period).reduce((a, b) => a + b, 0) / period
+    : arr[0];
+  for (let i = period; i < arr.length; i++) {
     e = arr[i] * k + e * (1 - k);
   }
   return e;
@@ -217,11 +220,13 @@ function detectPatterns(c: OHLC[]): PatternResult[] {
     if (macdP > 0 && macd < 0) results.push({ logic: 'MACD_CROSS', dir: 'DOWN', score: 7 });
   }
 
-  // 9. BOLLINGER SQUEEZE
+  // 9. BOLLINGER SQUEEZE BREAKOUT
   if (dLen >= 28) {
     const cls22 = d.slice(-22).map(x => x.cl);
     const sma = cls22.slice(-20).reduce((a, b) => a + b, 0) / 20;
     const sd = Math.sqrt(cls22.slice(-20).map(x => (x - sma) ** 2).reduce((a, b) => a + b, 0) / 20);
+    const upper = sma + sd * 2;
+    const lower = sma - sd * 2;
     const bw = (sd * 4) / sma;
 
     const cls28 = d.slice(-28, -6).map(x => x.cl);
@@ -229,9 +234,10 @@ function detectPatterns(c: OHLC[]): PatternResult[] {
     const sd2 = Math.sqrt(cls28.slice(-20).map(x => (x - sma2) ** 2).reduce((a, b) => a + b, 0) / 20);
     const bw2 = (sd2 * 4) / sma2;
 
+    // Squeeze detected (bands were wider before) + actual breakout beyond bands
     if (bw2 > bw * 1.3) {
-      if (cur.cl > sma) results.push({ logic: 'BB_SQUEEZE', dir: 'UP', score: 7 });
-      if (cur.cl < sma) results.push({ logic: 'BB_SQUEEZE', dir: 'DOWN', score: 7 });
+      if (cur.cl > upper) results.push({ logic: 'BB_SQUEEZE', dir: 'UP', score: 6 });
+      if (cur.cl < lower) results.push({ logic: 'BB_SQUEEZE', dir: 'DOWN', score: 6 });
     }
   }
 
@@ -244,16 +250,16 @@ function detectPatterns(c: OHLC[]): PatternResult[] {
 
   // 11. MOMENTUM
   const sl5 = d.slice(-5);
-  const sl10 = d.slice(-10, -5);
+  const sl10 = dLen >= 10 ? d.slice(-10, -5) : [];
   const upN = sl5.filter(x => x.cl > x.o).length;
   const upP = sl10.filter(x => x.cl > x.o).length;
   const dnN = sl5.filter(x => x.cl < x.o).length;
-  if (upP <= 1 && upN >= 3) results.push({ logic: 'MOMENTUM_UP', dir: 'UP', score: 6 });
-  if (upP >= 4 && dnN >= 3) results.push({ logic: 'MOMENTUM_DN', dir: 'DOWN', score: 6 });
+  if (sl10.length > 0 && upP <= 1 && upN >= 3) results.push({ logic: 'MOMENTUM_UP', dir: 'UP', score: 6 });
+  if (sl10.length > 0 && upP >= 4 && dnN >= 3) results.push({ logic: 'MOMENTUM_DN', dir: 'DOWN', score: 6 });
 
   // 12. PIN BAR
   if (range > 0) {
-    const nose = cur.cl > cur.o ? cur.h - cur.cl : cur.o - cur.h;
+    const nose = cur.cl > cur.o ? cur.h - cur.cl : cur.h - cur.o;
     const tail = cur.cl > cur.o ? cur.o - cur.l : cur.cl - cur.l;
     if (tail > body * 3 && tail > nose * 2 && body < range * 0.25) {
       results.push({ logic: 'PIN_BAR', dir: 'UP', score: 8 });
@@ -407,12 +413,12 @@ function detectPatterns(c: OHLC[]): PatternResult[] {
     }
 
     // ── DARK_CLOUD_COVER (bearish, score 7) ──
-    // Bullish prev followed by bearish cur that opens above prev high,
+    // Bullish prev followed by bearish cur that opens above prev close,
     // closes below midpoint of prev body
     if (isBullish(p) && isBearish(q)) {
       const pBody = p.cl - p.o; // bullish body size
       const pMid = p.o + pBody * 0.5;
-      if (q.o > p.h && q.cl < pMid && q.cl > p.o) {
+      if (q.o > p.cl && q.cl < pMid && q.cl > p.o) {
         results.push({ logic: 'DARK_CLOUD_COVER', dir: 'DOWN', score: 7 });
       }
     }
@@ -464,14 +470,14 @@ function detectPatterns(c: OHLC[]): PatternResult[] {
     }
 
     // ── TWEEZER_BOTTOM (bullish, score 6) ──
-    // Two candles with approximately equal lows, second candle bullish
-    if (isBullish(q) && Math.abs(p.l - q.l) < pip) {
+    // Bearish then bullish with equal lows
+    if (isBearish(p) && isBullish(q) && Math.abs(p.l - q.l) < pip) {
       results.push({ logic: 'TWEEZER_BOTTOM', dir: 'UP', score: 6 });
     }
 
     // ── TWEEZER_TOP (bearish, score 6) ──
-    // Two candles with approximately equal highs, second candle bearish
-    if (isBearish(q) && Math.abs(p.h - q.h) < pip) {
+    // Bullish then bearish with equal highs
+    if (isBullish(p) && isBearish(q) && Math.abs(p.h - q.h) < pip) {
       results.push({ logic: 'TWEEZER_TOP', dir: 'DOWN', score: 6 });
     }
 

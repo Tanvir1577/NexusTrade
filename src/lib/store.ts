@@ -122,7 +122,7 @@ export const useStore = create<AppState>()(
     (set, get) => ({
       running: false,
       selectedPairs: ['EUR_USD', 'USD_JPY', 'EUR_JPY', 'GBP_USD', 'AUD_USD'],
-      minScore: 6,
+      minScore: 10,
       mtgEnabled: true,
       tzOffset: 6,
       pendingSignal: null,

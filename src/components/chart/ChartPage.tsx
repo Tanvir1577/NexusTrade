@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useStore, formatPair, isJPYPair, ALL_PAIRS } from '@/lib/store';
-import { Plus, Minus, RotateCcw, ZoomIn, ZoomOut } from 'lucide-react';
+import { Plus, Minus, RotateCcw } from 'lucide-react';
 
 /* ==================================================================== */
 /*  TYPES                                                                */
@@ -19,7 +19,7 @@ interface Candle {
   spread: number;     // ask - bid at candle time
 }
 
-type Granularity = 'M1' | 'M5' | 'M15' | 'H1' | 'H4' | 'D';
+// Granularity fixed to M1 — removed dropdown per user request
 
 interface ViewState {
   scrollX: number;        // pixel offset (negative = scrolled left)
@@ -68,7 +68,7 @@ const MIN_ZOOM = 2;
 const MAX_ZOOM = 28;
 const DEFAULT_ZOOM = 8;
 const FETCH_COUNT = 500;
-const FETCH_MS = 3000;
+const FETCH_MS = 1000;
 
 /* ==================================================================== */
 /*  HELPERS                                                              */
@@ -97,27 +97,6 @@ function niceStep(range: number, targetLines: number): number {
   return step * mag;
 }
 
-function fmtTime(d: Date, g: Granularity): string {
-  const hh = String(d.getUTCHours()).padStart(2, '0');
-  const mm = String(d.getUTCMinutes()).padStart(2, '0');
-  if (g === 'H4' || g === 'D') {
-    const dd = String(d.getUTCDate()).padStart(2, '0');
-    const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()];
-    return g === 'D' ? `${dd} ${mo}` : `${mo} ${dd} ${hh}:${mm}`;
-  }
-  return `${hh}:${mm}`;
-}
-
-function fmtTimeFull(d: Date): string {
-  const dd = String(d.getUTCDate()).padStart(2, '0');
-  const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const yy = d.getUTCFullYear();
-  const hh = String(d.getUTCHours()).padStart(2, '0');
-  const mm = String(d.getUTCMinutes()).padStart(2, '0');
-  const ss = String(d.getUTCSeconds()).padStart(2, '0');
-  return `${yy}-${mo}-${dd} ${hh}:${mm}:${ss}`;
-}
-
 /* ==================================================================== */
 /*  COMPONENT                                                            */
 /* ==================================================================== */
@@ -130,18 +109,18 @@ export default function ChartPage() {
   const setChartPair = useStore(s => s.setChartPair);
   const currentTab = useStore(s => s.currentTab);
   const tzTime = useStore(s => s.tzTime);
-  const tzOffset = useStore(s => s.tzOffset);
 
   const dec = isJPYPair(pair) ? 3 : 5;
 
   /* ---- state ---- */
   const [candles, setCandles] = useState<Candle[]>([]);
-  const [granularity, setGranularity] = useState<Granularity>('M1');
+  const granularity = 'M1';
   const [sma20on, setSma20on] = useState(true);
   const [sma50on, setSma50on] = useState(false);
   const [volOn, setVolOn] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
   const [view, setView] = useState<ViewState>({
     scrollX: 0, zoom: DEFAULT_ZOOM, crossX: -1, crossY: -1, showCross: false,
   });
@@ -200,7 +179,7 @@ export default function ChartPage() {
   /* ---- fetch ---- */
   const fetchData = useCallback(async () => {
     try {
-      const res = await fetch(`/api/oanda?pair=${pair}&count=${FETCH_COUNT}&granularity=${granularity}`);
+      const res = await fetch(`/api/oanda?pair=${pair}&count=${FETCH_COUNT}&granularity=M1`);
       if (!res.ok) { setError('API error'); return; }
       const json = await res.json();
       const raw = json?.candles;
@@ -643,8 +622,7 @@ export default function ChartPage() {
         const td = new Date(info.time);
         ctx.fillStyle = THEME.textMuted;
         ctx.textAlign = 'right';
-        const gLabel = granularity === 'M1' ? '1m' : granularity === 'M5' ? '5m' : granularity === 'M15' ? '15m' : granularity === 'H1' ? '1H' : granularity === 'H4' ? '4H' : '1D';
-        ctx.fillText(`${gLabel}  ${tzTime(td)}`, chartW - 8, cy);
+        ctx.fillText(`1m  ${tzTime(td)}`, chartW - 8, cy);
       }
     }
 
@@ -700,7 +678,7 @@ export default function ChartPage() {
     ctx.fillStyle = THEME.bgPanel;
     ctx.fillRect(0, 0, w, LAYOUT.headerH);
 
-  }, [pair, dec, fmt, tzTime, granularity, sma20on, sma50on, volOn, sma20, sma50, loading, lastCandle, prevCandle]);
+  }, [pair, dec, fmt, tzTime, sma20on, sma50on, volOn, sma20, sma50, loading, lastCandle, prevCandle]);
 
   /* ---- RAF loop ---- */
   useEffect(() => {
@@ -716,7 +694,7 @@ export default function ChartPage() {
     return () => cancelAnimationFrame(rafRef.current);
   }, [draw, applyClamp]);
 
-  useEffect(() => { dirtyRef.current = true; }, [view, candles, sma20, sma50, granularity]);
+  useEffect(() => { dirtyRef.current = true; }, [view, candles, sma20, sma50]);
 
   /* ================================================================== */
   /*  INTERACTION                                                         */
@@ -863,19 +841,15 @@ export default function ChartPage() {
   /* ---- pair/TF change ---- */
   const changePair = useCallback((p: string) => {
     setChartPair(p);
-    setCandles([]);
+    setLoading(true);
+    setError('');
+    fetchedRef.current = false;
     autoFollowRef.current = true;
     setView(prev => ({ ...prev, scrollX: 0 }));
     dirtyRef.current = true;
   }, [setChartPair]);
 
-  const changeGranularity = useCallback((g: Granularity) => {
-    setGranularity(g);
-    setCandles([]);
-    autoFollowRef.current = true;
-    setView(prev => ({ ...prev, scrollX: 0 }));
-    dirtyRef.current = true;
-  }, []);
+  // Granularity removed — only M1
 
   /* ================================================================== */
   /*  RENDER                                                              */
@@ -900,30 +874,20 @@ export default function ChartPage() {
         </div>
 
         <div className="flex items-center gap-1.5 ml-1">
-          {/* Granularity selector */}
-          <select
-            value={granularity}
-            onChange={e => changeGranularity(e.target.value as Granularity)}
-            className="rounded px-1.5 py-0.5 text-[11px] font-mono text-white outline-none cursor-pointer"
-            style={{ background: 'rgba(255,255,255,0.05)', border: `1px solid ${THEME.border}` }}
-          >
-            <option value="M1">1m</option>
-            <option value="M5">5m</option>
-            <option value="M15">15m</option>
-            <option value="H1">1H</option>
-            <option value="H4">4H</option>
-            <option value="D">1D</option>
-          </select>
-
           {/* Pair selector */}
-          <select
-            value={pair}
-            onChange={e => changePair(e.target.value)}
-            className="rounded px-1.5 py-0.5 text-[11px] font-mono text-white outline-none cursor-pointer"
-            style={{ background: 'rgba(255,255,255,0.05)', border: `1px solid ${THEME.border}` }}
-          >
-            {ALL_PAIRS.map(p => <option key={p} value={p}>{formatPair(p)}</option>)}
-          </select>
+          <div className="relative">
+            <select
+              value={pair}
+              onChange={e => changePair(e.target.value)}
+              className="appearance-none rounded px-2.5 py-1 text-xs font-mono text-emerald-300 outline-none cursor-pointer pr-6"
+              style={{ background: '#111827', border: '1px solid rgba(34,197,94,0.25)', minWidth: '90px' }}
+            >
+              {ALL_PAIRS.map(p => (
+                <option key={p} value={p} style={{ background: '#111827', color: '#6ee7b7', padding: '4px 8px' }}>{formatPair(p)}</option>
+              ))}
+            </select>
+            <span className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-emerald-400 text-[10px]">▾</span>
+          </div>
         </div>
 
         <div className="flex-1" />
@@ -992,8 +956,16 @@ export default function ChartPage() {
       >
         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
 
-        {/* Error overlay */}
-        {error && (
+        {/* Loading spinner on pair change */}
+        {loading && candles.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center z-10">
+            <div className="flex items-center gap-2 text-sm font-mono" style={{ color: THEME.textMuted }}>
+              <span className="inline-block w-3 h-3 border border-emerald-500/40 border-t-emerald-400 rounded-full animate-spin" />
+              Loading {formatPair(pair)}...
+            </div>
+          </div>
+        )}
+        {error && !loading && (
           <div className="absolute inset-0 flex items-center justify-center z-10">
             <div className="rounded-lg px-4 py-3 text-sm font-mono" style={{ background: 'rgba(239,68,68,0.15)', color: THEME.bear, border: '1px solid rgba(239,68,68,0.3)' }}>
               {error}

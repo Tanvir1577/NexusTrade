@@ -36,13 +36,20 @@ yarn-error.log*
 # vercel
 .vercel
 
+# database
+/db/
+prisma/*.db
+prisma/*.db-journal
+
+# dev artifacts
+/worklog.md
+/Caddyfile
+/mini-services/
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
 local-*
-.claude
-.z-ai-config
 *.log
 dev.log
 dev.out.log
@@ -50,5 +57,3 @@ test
 prompt
 
 server.log
-# Skills directory
-/skills/

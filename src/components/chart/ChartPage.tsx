@@ -100,6 +100,8 @@ export default function ChartPage() {
   /* ---- helpers ---- */
   const fmt = useCallback((v: number) => v.toFixed(dec), [dec]);
 
+  const autoFollowRef = useRef(true);
+
   const clampOffset = useCallback(() => {
     const c = chartRef.current;
     const slotW = CANDLE_SLOT * c.scale;
@@ -108,14 +110,22 @@ export default function ChartPage() {
     if (chartW <= 0 || c.data.length === 0) return c.offset;
 
     const totalW = c.data.length * slotW;
-    const minOffset = -(totalW - chartW);
+    // Add right padding so latest candle is fully visible (3 candle slots)
+    const rightPad = slotW * 3;
+    const minOffset = -(totalW - chartW + rightPad);
 
-    if (firstLoadRef.current && totalW > chartW) {
-      c.offset = minOffset + 20;
+    if (firstLoadRef.current && totalW + rightPad > chartW) {
+      c.offset = minOffset;
       firstLoadRef.current = false;
+      autoFollowRef.current = true;
     } else {
-      if (c.offset < minOffset) c.offset = minOffset;
-      if (c.offset > 0) c.offset = 0;
+      // Auto-follow: if user is near right edge, keep following latest candle
+      if (autoFollowRef.current) {
+        c.offset = minOffset;
+      } else {
+        if (c.offset < minOffset) c.offset = minOffset;
+        if (c.offset > 0) c.offset = 0;
+      }
     }
     return c.offset;
   }, []);
@@ -129,10 +139,10 @@ export default function ChartPage() {
       const raw = json?.candles;
       if (!Array.isArray(raw)) return;
       const mapped: OHLC[] = raw.map((c: Record<string, unknown>) => ({
-        o: Number((c.mid as Record<string, string>)?.o ?? 0),
-        h: Number((c.mid as Record<string, string>)?.h ?? 0),
-        l: Number((c.mid as Record<string, string>)?.l ?? 0),
-        cl: Number((c.mid as Record<string, string>)?.c ?? 0),
+        o: Number((c.bid as Record<string, string>)?.o ?? (c.mid as Record<string, string>)?.o ?? 0),
+        h: Number((c.bid as Record<string, string>)?.h ?? (c.mid as Record<string, string>)?.h ?? 0),
+        l: Number((c.bid as Record<string, string>)?.l ?? (c.mid as Record<string, string>)?.l ?? 0),
+        cl: Number((c.bid as Record<string, string>)?.c ?? (c.mid as Record<string, string>)?.c ?? 0),
         t: String(c.time ?? ''),
         complete: Boolean(c.complete),
       }));
@@ -581,6 +591,18 @@ export default function ChartPage() {
     setChart(prev => ({
       ...prev, isDragging: true, dragStartX: pos.x, dragStartOffset: prev.offset, velocity: 0,
     }));
+    // Disable auto-follow when user manually drags (unless dragging right toward latest)
+    const c = chartRef.current;
+    const slotW = CANDLE_SLOT * c.scale;
+    const chartW = sizeRef.current.w - PRICE_AXIS_W;
+    const totalW = c.data.length * slotW;
+    const rightPad = slotW * 3;
+    const minOffset = -(totalW - chartW + rightPad);
+    if (c.offset < minOffset + slotW * 2) {
+      autoFollowRef.current = true;
+    } else {
+      autoFollowRef.current = false;
+    }
     lastDragXRef.current = pos.x;
     lastDragTimeRef.current = Date.now();
   }, [getPos]);
@@ -602,7 +624,20 @@ export default function ChartPage() {
     dirtyRef.current = true;
   }, [getPos]);
 
-  const onMouseUp = useCallback(() => { setChart(prev => ({ ...prev, isDragging: false })); }, []);
+  const onMouseUp = useCallback(() => {
+    setChart(prev => {
+      // Re-enable auto-follow if user is near right edge after drag
+      const slotW = CANDLE_SLOT * prev.scale;
+      const chartW = sizeRef.current.w - PRICE_AXIS_W;
+      const totalW = prev.data.length * slotW;
+      const rightPad = slotW * 3;
+      const minOffset = -(totalW - chartW + rightPad);
+      if (prev.offset <= minOffset + slotW) {
+        autoFollowRef.current = true;
+      }
+      return { ...prev, isDragging: false };
+    });
+  }, []);
   const onMouseLeave = useCallback(() => {
     setChart(prev => ({ ...prev, isDragging: false, crosshairVisible: false }));
     if (tooltipRef.current) tooltipRef.current.style.display = 'none';
@@ -660,7 +695,18 @@ export default function ChartPage() {
   const onTouchEnd = useCallback((e: React.TouchEvent) => {
     if (e.touches.length < 2) pinchDistRef.current = 0;
     if (e.touches.length === 0) {
-      setChart(prev => ({ ...prev, isDragging: false, crosshairVisible: false }));
+      setChart(prev => {
+        // Re-enable auto-follow if near right edge
+        const slotW = CANDLE_SLOT * prev.scale;
+        const chartW = sizeRef.current.w - PRICE_AXIS_W;
+        const totalW = prev.data.length * slotW;
+        const rightPad = slotW * 3;
+        const minOffset = -(totalW - chartW + rightPad);
+        if (prev.offset <= minOffset + slotW) {
+          autoFollowRef.current = true;
+        }
+        return { ...prev, isDragging: false, crosshairVisible: false };
+      });
       if (tooltipRef.current) tooltipRef.current.style.display = 'none';
       dirtyRef.current = true;
     }
@@ -671,9 +717,9 @@ export default function ChartPage() {
   const zoomOut = useCallback(() => { setChart(prev => ({ ...prev, scale: Math.max(MIN_SCALE, prev.scale / 1.3) })); dirtyRef.current = true; }, []);
   const zoomReset = useCallback(() => {
     setChart(prev => {
-      const tw = prev.data.length * CANDLE_SLOT;
-      const cw = sizeRef.current.w - PRICE_AXIS_W;
-      return { ...prev, scale: 1, offset: Math.min(0, -(tw - cw + 20)), velocity: 0 };
+      autoFollowRef.current = true;
+      firstLoadRef.current = true;
+      return { ...prev, scale: 1, offset: 0, velocity: 0 };
     });
     dirtyRef.current = true;
   }, []);

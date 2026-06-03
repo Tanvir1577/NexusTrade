@@ -127,7 +127,8 @@ export default function ChartPage() {
 
   /* ---- refs ---- */
   const viewRef = useRef(view);
-  const candlesRef = useRef(candles);
+  const candlesRef = useRef<Candle[]>([]);
+  const activePairRef = useRef(pair);
   const sizeRef = useRef({ w: 0, h: 0 });
   const dirtyRef = useRef(true);
   const rafRef = useRef(0);
@@ -136,8 +137,11 @@ export default function ChartPage() {
   const dragStartRef = useRef({ x: 0, scrollX: 0 });
   const pinchRef = useRef(0);
   const lastPinchZoomRef = useRef(0);
+  const loadingRef = useRef(true);
 
   useEffect(() => { viewRef.current = view; });
+  useEffect(() => { loadingRef.current = loading; }, [loading]);
+  // Keep candlesRef in sync immediately (sync, not async useEffect)
   useEffect(() => { candlesRef.current = candles; }, [candles]);
 
   /* ---- derived ---- */
@@ -179,7 +183,8 @@ export default function ChartPage() {
   /* ---- fetch ---- */
   const fetchData = useCallback(async () => {
     try {
-      const res = await fetch(`/api/oanda?pair=${pair}&count=${FETCH_COUNT}&granularity=M1`);
+      const currentPair = activePairRef.current;
+      const res = await fetch(`/api/oanda?pair=${currentPair}&count=${FETCH_COUNT}&granularity=M1`);
       if (!res.ok) { setError('API error'); return; }
       const json = await res.json();
       const raw = json?.candles;
@@ -189,7 +194,6 @@ export default function ChartPage() {
         const bid = c.bid as Record<string, string> | undefined;
         const ask = c.ask as Record<string, string> | undefined;
         const mid = c.mid as Record<string, string> | undefined;
-        // Use BID for chart — matches binary broker display
         const o = Number(bid?.o ?? mid?.o ?? 0);
         const h = Number(bid?.h ?? mid?.h ?? 0);
         const l = Number(bid?.l ?? mid?.l ?? 0);
@@ -205,52 +209,36 @@ export default function ChartPage() {
         };
       });
 
-      setCandles(prev => {
-        if (prev.length === 0) {
-          autoFollowRef.current = true;
-          return mapped;
-        }
-        // Merge: update last incomplete candle, append new ones
-        const lastPrev = prev[prev.length - 1];
-        const result = [...prev];
-        if (!lastPrev.complete) {
-          const matchIdx = mapped.findIndex(m => m.time === lastPrev.time);
-          if (matchIdx >= 0) {
-            result[result.length - 1] = mapped[matchIdx];
-            // Append candles after the matched one
-            for (let i = matchIdx + 1; i < mapped.length; i++) {
-              result.push(mapped[i]);
-            }
-          }
-        } else {
-          const lastTime = lastPrev.time;
-          for (const m of mapped) {
-            if (m.time > lastTime) result.push(m);
-          }
-        }
-        return result.slice(-FETCH_COUNT);
-      });
+      // If pair changed during fetch, discard stale data
+      if (currentPair !== activePairRef.current) return;
 
+      // Always update candlesRef + state together (no merge)
+      candlesRef.current = mapped;
+      setCandles(mapped);
       setError('');
       setLoading(false);
+      autoFollowRef.current = true;
       dirtyRef.current = true;
     } catch {
       setError('Network error');
     }
-  }, [pair, granularity]);
+  }, []);
 
   /* ---- auto-refresh ---- */
-  const fetchedRef = useRef(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
-    if (currentTab !== 'chart') return;
-    const id = setInterval(() => fetchData(), FETCH_MS);
-    // Delay first fetch to avoid synchronous setState in effect
-    if (!fetchedRef.current) {
-      fetchedRef.current = true;
-      const tid = setTimeout(fetchData, 0);
-      return () => { clearTimeout(tid); clearInterval(id); };
+    if (currentTab !== 'chart') {
+      if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
+      return;
     }
-    return () => clearInterval(id);
+    // Fire first fetch immediately via microtask
+    const tid = setTimeout(fetchData, 0);
+    // Then poll every second
+    intervalRef.current = setInterval(fetchData, FETCH_MS);
+    return () => {
+      clearTimeout(tid);
+      if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
+    };
   }, [currentTab, fetchData]);
 
   /* ---- auto-follow on new candle ---- */
@@ -840,14 +828,18 @@ export default function ChartPage() {
 
   /* ---- pair/TF change ---- */
   const changePair = useCallback((p: string) => {
+    if (p === pair) return; // Same pair — ignore
+    activePairRef.current = p; // Set immediately for fetch to use
     setChartPair(p);
+    // Clear old data instantly
+    candlesRef.current = [];
+    setCandles([]);
     setLoading(true);
     setError('');
-    fetchedRef.current = false;
     autoFollowRef.current = true;
     setView(prev => ({ ...prev, scrollX: 0 }));
     dirtyRef.current = true;
-  }, [setChartPair]);
+  }, [setChartPair, pair]);
 
   // Granularity removed — only M1
 

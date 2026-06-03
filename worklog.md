@@ -223,3 +223,30 @@ Stage Summary:
 - Engine v5.0: 74 patterns + ATR gates + consolidation filter + trend alignment + smart consensus
 - Signals will be much rarer but each one has real market structure behind it
 - Files modified: signal-engine.ts (complete rewrite), use-signal-engine.ts (updated)
+
+---
+Task ID: 17
+Agent: Main Coordinator
+Task: Replace broken canvas chart with TradingView embedded widget
+
+Work Log:
+- Diagnosed persistent chart pair-switching issues with custom canvas chart (blinking, no data, stale closures)
+- User requested TradingView embedded chart instead of custom canvas
+- Completely rewrote ChartPage.tsx to use TradingView Advanced Chart Widget
+- Dynamic script loading via useEffect + document.createElement('script')
+- Widget recreates on pair change (since setSymbol API not available on widget return object)
+- Configuration: dark theme, 1M interval, candlestick style, SMA 20 & SMA 50 studies
+- Hidden: side toolbar, top toolbar, details panel, date ranges, hotlist, calendar, popup button
+- Green/red candle overrides matching app theme
+- CSS overlay to partially hide TradingView watermark (bottom-right gradient)
+- Error handling: loading state while script loads, error fallback if script fails
+- Fixed React 19 lint issue: setState in effect (used setTimeout wrapper + event callbacks)
+- Verified pair switching works correctly: GBP/JPY → USD/JPY → EUR/GBP all load perfectly
+- No runtime errors in dev log
+
+Stage Summary:
+- Chart is now powered by TradingView's professional embedded widget
+- Accurate live market data, no more OANDA candle accuracy issues
+- Pair switching works by recreating widget (clean, reliable)
+- All 20 pairs supported via FX: prefix (e.g., FX:EURUSD)
+- SMA 20 and SMA 50 indicators included by default

@@ -1,202 +1,320 @@
 'use client';
 
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useStore, formatPair, isJPYPair, ALL_PAIRS } from '@/lib/store';
-import { Plus, Minus, RotateCcw } from 'lucide-react';
+import { Plus, Minus, RotateCcw, ZoomIn, ZoomOut } from 'lucide-react';
 
-/* ================================================================== */
-/*  Types                                                              */
-/* ================================================================== */
+/* ==================================================================== */
+/*  TYPES                                                                */
+/* ==================================================================== */
 
-interface OHLC {
-  o: number;
-  h: number;
-  l: number;
-  cl: number;
-  t: string;
+interface Candle {
+  time: number;       // unix ms
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
   complete: boolean;
+  spread: number;     // ask - bid at candle time
 }
 
-interface ChartState {
-  data: OHLC[];
-  offset: number;
-  scale: number;
-  isDragging: boolean;
-  dragStartX: number;
-  dragStartOffset: number;
-  velocity: number;
-  crosshairX: number;
-  crosshairY: number;
-  crosshairVisible: boolean;
+type Granularity = 'M1' | 'M5' | 'M15' | 'H1' | 'H4' | 'D';
+
+interface ViewState {
+  scrollX: number;        // pixel offset (negative = scrolled left)
+  zoom: number;           // candle pixel width
+  crossX: number;
+  crossY: number;
+  showCross: boolean;
 }
 
-/* ================================================================== */
-/*  TradingView-style constants                                         */
-/* ================================================================== */
+/* ==================================================================== */
+/*  CONSTANTS                                                            */
+/* ==================================================================== */
 
-const BG = '#0a0e17';
-const GRID_COLOR = 'rgba(255,255,255,0.035)';
-const GRID_COLOR_STRONG = 'rgba(255,255,255,0.06)';
-const BULL = '#10b981';
-const BEAR = '#ef4444';
-const CROSSHAIR_COLOR = 'rgba(200,215,230,0.22)';
+const THEME = {
+  bg:            '#0b0e14',
+  bgPanel:       '#0d1117',
+  grid:          'rgba(255,255,255,0.03)',
+  gridStrong:    'rgba(255,255,255,0.06)',
+  border:        'rgba(255,255,255,0.07)',
+  bull:          '#22c55e',
+  bullDim:       'rgba(34,197,94,0.35)',
+  bear:          '#ef4444',
+  bearDim:       'rgba(239,68,68,0.35)',
+  text:          'rgba(255,255,255,0.45)',
+  textBright:    'rgba(255,255,255,0.7)',
+  textMuted:     'rgba(255,255,255,0.25)',
+  crosshair:     'rgba(150,170,190,0.3)',
+  volBull:       'rgba(34,197,94,0.15)',
+  volBear:       'rgba(239,68,68,0.15)',
+  sma20:         '#f59e0b',
+  sma50:         '#8b5cf6',
+  sma20bg:       'rgba(245,158,11,0.12)',
+  sma50bg:       'rgba(139,92,246,0.12)',
+};
 
-const PRICE_AXIS_W = 70;
-const TIME_AXIS_H = 28;
-const OHLC_BAR_H = 24;
-const HEADER_H = 42;
+const LAYOUT = {
+  headerH:   40,
+  priceW:    72,
+  timeH:     26,
+  ohlcH:     22,
+  volRatio:  0.15,  // volume takes 15% of chart height
+  rightPad:  4,     // candle slots padding on right
+};
 
-// Core candle geometry — TradingView proportions
-// At scale=1: each candle slot = BODY + GAP = 7px
-// Body fills ~71% of slot, gap fills ~14% right side
-const CANDLE_BODY = 5;
-const CANDLE_GAP = 2;
-const CANDLE_SLOT = CANDLE_BODY + CANDLE_GAP; // 7px per candle at scale 1
+const MIN_ZOOM = 2;
+const MAX_ZOOM = 28;
+const DEFAULT_ZOOM = 8;
+const FETCH_COUNT = 500;
+const FETCH_MS = 3000;
 
-const MOMENTUM_DECAY = 0.92;
-const MIN_SCALE = 0.4;
-const MAX_SCALE = 10;
-const REFRESH_MS = 5000;
+/* ==================================================================== */
+/*  HELPERS                                                              */
+/* ==================================================================== */
 
-/* ================================================================== */
-/*  Component                                                          */
-/* ================================================================== */
+function calcSMA(data: Candle[], period: number): (number | null)[] {
+  const result: (number | null)[] = [];
+  for (let i = 0; i < data.length; i++) {
+    if (i < period - 1) { result.push(null); continue; }
+    let sum = 0;
+    for (let j = i - period + 1; j <= i; j++) sum += data[j].close;
+    result.push(sum / period);
+  }
+  return result;
+}
+
+function niceStep(range: number, targetLines: number): number {
+  const rough = range / targetLines;
+  const mag = Math.pow(10, Math.floor(Math.log10(rough)));
+  const norm = rough / mag;
+  let step: number;
+  if (norm < 1.5) step = 1;
+  else if (norm < 3) step = 2;
+  else if (norm < 7) step = 5;
+  else step = 10;
+  return step * mag;
+}
+
+function fmtTime(d: Date, g: Granularity): string {
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const mm = String(d.getUTCMinutes()).padStart(2, '0');
+  if (g === 'H4' || g === 'D') {
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()];
+    return g === 'D' ? `${dd} ${mo}` : `${mo} ${dd} ${hh}:${mm}`;
+  }
+  return `${hh}:${mm}`;
+}
+
+function fmtTimeFull(d: Date): string {
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const yy = d.getUTCFullYear();
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const mm = String(d.getUTCMinutes()).padStart(2, '0');
+  const ss = String(d.getUTCSeconds()).padStart(2, '0');
+  return `${yy}-${mo}-${dd} ${hh}:${mm}:${ss}`;
+}
+
+/* ==================================================================== */
+/*  COMPONENT                                                            */
+/* ==================================================================== */
 
 export default function ChartPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const tooltipRef = useRef<HTMLDivElement>(null);
 
   const pair = useStore(s => s.chartPair);
   const setChartPair = useStore(s => s.setChartPair);
   const currentTab = useStore(s => s.currentTab);
   const tzTime = useStore(s => s.tzTime);
-
-  const [chart, setChart] = useState<ChartState>({
-    data: [],
-    offset: 0,
-    scale: 1,
-    isDragging: false,
-    dragStartX: 0,
-    dragStartOffset: 0,
-    velocity: 0,
-    crosshairX: -1,
-    crosshairY: -1,
-    crosshairVisible: false,
-  });
-
-  const dirtyRef = useRef(true);
-  const rafRef = useRef<number>(0);
-  const sizeRef = useRef({ w: 0, h: 0 });
-  const pinchDistRef = useRef(0);
-  const lastDragXRef = useRef(0);
-  const lastDragTimeRef = useRef(0);
-  const chartRef = useRef(chart);
-  const firstLoadRef = useRef(true);
-  useEffect(() => { chartRef.current = chart; });
+  const tzOffset = useStore(s => s.tzOffset);
 
   const dec = isJPYPair(pair) ? 3 : 5;
 
-  /* ---- helpers ---- */
-  const fmt = useCallback((v: number) => v.toFixed(dec), [dec]);
+  /* ---- state ---- */
+  const [candles, setCandles] = useState<Candle[]>([]);
+  const [granularity, setGranularity] = useState<Granularity>('M1');
+  const [sma20on, setSma20on] = useState(true);
+  const [sma50on, setSma50on] = useState(false);
+  const [volOn, setVolOn] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [view, setView] = useState<ViewState>({
+    scrollX: 0, zoom: DEFAULT_ZOOM, crossX: -1, crossY: -1, showCross: false,
+  });
 
+  /* ---- refs ---- */
+  const viewRef = useRef(view);
+  const candlesRef = useRef(candles);
+  const sizeRef = useRef({ w: 0, h: 0 });
+  const dirtyRef = useRef(true);
+  const rafRef = useRef(0);
   const autoFollowRef = useRef(true);
+  const isDragRef = useRef(false);
+  const dragStartRef = useRef({ x: 0, scrollX: 0 });
+  const pinchRef = useRef(0);
+  const lastPinchZoomRef = useRef(0);
 
-  const clampOffset = useCallback(() => {
-    const c = chartRef.current;
-    const slotW = CANDLE_SLOT * c.scale;
-    const chartW = sizeRef.current.w - PRICE_AXIS_W;
+  useEffect(() => { viewRef.current = view; });
+  useEffect(() => { candlesRef.current = candles; }, [candles]);
 
-    if (chartW <= 0 || c.data.length === 0) return c.offset;
+  /* ---- derived ---- */
+  const sma20 = useMemo(() => sma20on ? calcSMA(candles, 20) : [], [candles, sma20on]);
+  const sma50 = useMemo(() => sma50on ? calcSMA(candles, 50) : [], [candles, sma50on]);
 
-    const totalW = c.data.length * slotW;
-    // Add right padding so latest candle is fully visible (3 candle slots)
-    const rightPad = slotW * 3;
-    const minOffset = -(totalW - chartW + rightPad);
+  const lastCandle = candles.length > 0 ? candles[candles.length - 1] : null;
+  const prevCandle = candles.length > 1 ? candles[candles.length - 2] : null;
 
-    if (firstLoadRef.current && totalW + rightPad > chartW) {
-      c.offset = minOffset;
-      firstLoadRef.current = false;
-      autoFollowRef.current = true;
-    } else {
-      // Auto-follow: if user is near right edge, keep following latest candle
-      if (autoFollowRef.current) {
-        c.offset = minOffset;
-      } else {
-        if (c.offset < minOffset) c.offset = minOffset;
-        if (c.offset > 0) c.offset = 0;
-      }
-    }
-    return c.offset;
+  /* ---- clamp / auto-follow ---- */
+  const getClamp = useCallback(() => {
+    const v = viewRef.current;
+    const d = candlesRef.current;
+    const cw = sizeRef.current.w - LAYOUT.priceW;
+    if (cw <= 0 || d.length === 0) return v.scrollX;
+    const total = d.length * v.zoom;
+    const pad = v.zoom * LAYOUT.rightPad;
+    const min = -(total - cw + pad);
+    return min;
   }, []);
 
-  /* ---- fetch data ---- */
+  const applyClamp = useCallback((force?: 'follow') => {
+    const v = viewRef.current;
+    const d = candlesRef.current;
+    const cw = sizeRef.current.w - LAYOUT.priceW;
+    if (cw <= 0 || d.length === 0) return;
+    const total = d.length * v.zoom;
+    const pad = v.zoom * LAYOUT.rightPad;
+    const min = -(total - cw + pad);
+
+    if (force === 'follow' || autoFollowRef.current) {
+      v.scrollX = min;
+    } else {
+      if (v.scrollX < min) v.scrollX = min;
+      if (v.scrollX > 0) v.scrollX = 0;
+    }
+  }, []);
+
+  /* ---- fetch ---- */
   const fetchData = useCallback(async () => {
     try {
-      const res = await fetch(`/api/oanda?pair=${pair}&count=300&granularity=M1`);
-      if (!res.ok) return;
+      const res = await fetch(`/api/oanda?pair=${pair}&count=${FETCH_COUNT}&granularity=${granularity}`);
+      if (!res.ok) { setError('API error'); return; }
       const json = await res.json();
       const raw = json?.candles;
-      if (!Array.isArray(raw)) return;
-      const mapped: OHLC[] = raw.map((c: Record<string, unknown>) => ({
-        o: Number((c.bid as Record<string, string>)?.o ?? (c.mid as Record<string, string>)?.o ?? 0),
-        h: Number((c.bid as Record<string, string>)?.h ?? (c.mid as Record<string, string>)?.h ?? 0),
-        l: Number((c.bid as Record<string, string>)?.l ?? (c.mid as Record<string, string>)?.l ?? 0),
-        cl: Number((c.bid as Record<string, string>)?.c ?? (c.mid as Record<string, string>)?.c ?? 0),
-        t: String(c.time ?? ''),
-        complete: Boolean(c.complete),
-      }));
-      setChart(prev => {
-        if (prev.data.length === 0 && mapped.length > 0) {
-          firstLoadRef.current = true;
-          return { ...prev, data: mapped, offset: 0 };
-        }
-        return { ...prev, data: mapped };
+      if (!Array.isArray(raw) || raw.length === 0) { setError('No data'); return; }
+
+      const mapped: Candle[] = raw.map((c: Record<string, unknown>) => {
+        const bid = c.bid as Record<string, string> | undefined;
+        const ask = c.ask as Record<string, string> | undefined;
+        const mid = c.mid as Record<string, string> | undefined;
+        // Use BID for chart — matches binary broker display
+        const o = Number(bid?.o ?? mid?.o ?? 0);
+        const h = Number(bid?.h ?? mid?.h ?? 0);
+        const l = Number(bid?.l ?? mid?.l ?? 0);
+        const cl = Number(bid?.c ?? mid?.c ?? 0);
+        const ao = Number(ask?.o ?? mid?.o ?? 0);
+        const spread = Math.abs(ao - o);
+        return {
+          time: new Date(String(c.time ?? '')).getTime(),
+          open: o, high: h, low: l, close: cl,
+          volume: Number(c.volume ?? 0),
+          complete: Boolean(c.complete),
+          spread,
+        };
       });
+
+      setCandles(prev => {
+        if (prev.length === 0) {
+          autoFollowRef.current = true;
+          return mapped;
+        }
+        // Merge: update last incomplete candle, append new ones
+        const lastPrev = prev[prev.length - 1];
+        const result = [...prev];
+        if (!lastPrev.complete) {
+          const matchIdx = mapped.findIndex(m => m.time === lastPrev.time);
+          if (matchIdx >= 0) {
+            result[result.length - 1] = mapped[matchIdx];
+            // Append candles after the matched one
+            for (let i = matchIdx + 1; i < mapped.length; i++) {
+              result.push(mapped[i]);
+            }
+          }
+        } else {
+          const lastTime = lastPrev.time;
+          for (const m of mapped) {
+            if (m.time > lastTime) result.push(m);
+          }
+        }
+        return result.slice(-FETCH_COUNT);
+      });
+
+      setError('');
+      setLoading(false);
       dirtyRef.current = true;
     } catch {
-      // silent
+      setError('Network error');
     }
-  }, [pair]);
+  }, [pair, granularity]);
 
   /* ---- auto-refresh ---- */
+  const fetchedRef = useRef(false);
   useEffect(() => {
     if (currentTab !== 'chart') return;
-    const id = setInterval(fetchData, REFRESH_MS);
-    fetchData();
+    const id = setInterval(() => fetchData(), FETCH_MS);
+    // Delay first fetch to avoid synchronous setState in effect
+    if (!fetchedRef.current) {
+      fetchedRef.current = true;
+      const tid = setTimeout(fetchData, 0);
+      return () => { clearTimeout(tid); clearInterval(id); };
+    }
     return () => clearInterval(id);
   }, [currentTab, fetchData]);
 
-  /* ---- ResizeObserver ---- */
+  /* ---- auto-follow on new candle ---- */
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
+    if (autoFollowRef.current) {
+      applyClamp('follow');
+      dirtyRef.current = true;
+    }
+  }, [candles.length, applyClamp]);
+
+  /* ---- resize ---- */
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
     const ro = new ResizeObserver(entries => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
         if (width > 0 && height > 0) {
           sizeRef.current = { w: width, h: height };
+          applyClamp();
           dirtyRef.current = true;
         }
       }
     });
-    ro.observe(container);
+    ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [applyClamp]);
 
   /* ================================================================== */
-  /*  DRAW — TradingView-accurate candlestick rendering                  */
+  /*  DRAW ENGINE                                                         */
   /* ================================================================== */
+
+  const fmt = useCallback((v: number) => v.toFixed(dec), [dec]);
+
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const { w, h } = sizeRef.current;
-    if (w === 0 || h === 0) return;
+    if (w < 10 || h < 10) return;
 
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
     canvas.style.width = w + 'px';
     canvas.style.height = h + 'px';
 
@@ -204,181 +322,240 @@ export default function ChartPage() {
     if (!ctx) return;
     ctx.scale(dpr, dpr);
 
-    const c = chartRef.current;
-    const { data, scale, offset, crosshairX, crosshairY, crosshairVisible } = c;
+    const v = viewRef.current;
+    const data = candlesRef.current;
+    const zoom = v.zoom;
 
-    /* ---- layout regions ---- */
-    const chartTop = HEADER_H;
-    const chartW = w - PRICE_AXIS_W;
-    const chartH = h - HEADER_H - TIME_AXIS_H - OHLC_BAR_H;
-    const chartBottom = chartTop + chartH;
-    const chartRight = chartW;
+    /* ---- regions ---- */
+    const chartW = w - LAYOUT.priceW;
+    const chartH = h - LAYOUT.headerH - LAYOUT.timeH - LAYOUT.ohlcH;
+    const chartTop = LAYOUT.headerH;
+    const chartBot = chartTop + chartH;
+
+    const volH = volOn ? chartH * LAYOUT.volRatio : 0;
+    const priceH = chartH - volH;
 
     /* ---- clear ---- */
-    ctx.fillStyle = BG;
+    ctx.fillStyle = THEME.bg;
     ctx.fillRect(0, 0, w, h);
 
+    /* ---- loading / empty ---- */
     if (data.length === 0) {
-      ctx.fillStyle = 'rgba(255,255,255,0.15)';
-      ctx.font = '13px monospace';
+      ctx.fillStyle = THEME.textMuted;
+      ctx.font = '13px -apple-system, "Segoe UI", sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('Loading chart data...', w / 2, h / 2);
+      ctx.fillText(loading ? 'Loading market data...' : 'No data available', w / 2, h / 2);
       return;
     }
 
-    /* ---- scaled dimensions ---- */
-    const slotW = CANDLE_SLOT * scale;
-    const bodyW = CANDLE_BODY * scale;
+    /* ---- visible range ---- */
+    const startIdx = Math.max(0, Math.floor(-v.scrollX / zoom));
+    const endIdx = Math.min(data.length, Math.ceil((chartW - v.scrollX) / zoom) + 1);
 
-    /* ---- visible slot range ---- */
-    const startSlot = Math.max(0, Math.floor(-offset / slotW));
-    const endSlot = Math.min(data.length, Math.ceil((chartW - offset) / slotW) + 1);
-
-    /* ---- price range from VISIBLE candles only (TradingView-style) ---- */
-    let priceLow = Infinity;
-    let priceHigh = -Infinity;
-    for (let i = startSlot; i < endSlot; i++) {
-      if (data[i].l < priceLow) priceLow = data[i].l;
-      if (data[i].h > priceHigh) priceHigh = data[i].h;
+    /* ---- price range (visible) ---- */
+    let pLo = Infinity, pHi = -Infinity;
+    for (let i = startIdx; i < endIdx; i++) {
+      if (data[i].low < pLo) pLo = data[i].low;
+      if (data[i].high > pHi) pHi = data[i].high;
     }
-    // Ensure minimum range for stability
-    if (priceLow >= priceHigh) {
-      priceLow -= 0.0005;
-      priceHigh += 0.0005;
+    // Include SMA in range
+    const sma20Data = sma20on ? calcSMA(data, 20) : [];
+    const sma50Data = sma50on ? calcSMA(data, 50) : [];
+    for (let i = startIdx; i < endIdx; i++) {
+      if (sma20Data[i] != null) { pHi = Math.max(pHi, sma20Data[i]); pLo = Math.min(pLo, sma20Data[i]); }
+      if (sma50Data[i] != null) { pHi = Math.max(pHi, sma50Data[i]); pLo = Math.min(pLo, sma50Data[i]); }
     }
-    // 8% padding per side — TradingView-style
-    const rawRange = priceHigh - priceLow;
-    const pad = rawRange * 0.08;
-    priceLow -= pad;
-    priceHigh += pad;
-    const priceRange = priceHigh - priceLow;
+    if (pLo >= pHi) { pLo -= 0.0005; pHi += 0.0005; }
+    const rawRange = pHi - pLo;
+    const pad = rawRange * 0.06;
+    pLo -= pad; pHi += pad;
+    const pRange = pHi - pLo;
 
-    /* ---- price → Y mapping ---- */
-    const priceToY = (p: number) =>
-      chartTop + (1 - (p - priceLow) / priceRange) * chartH;
+    const priceToY = (p: number) => chartTop + (1 - (p - pLo) / pRange) * priceH;
 
-    /* ---- horizontal grid lines + price labels ---- */
-    const gridRows = 8;
+    /* ---- nice price grid ---- */
+    const step = niceStep(pRange, 8);
+    const gridStart = Math.ceil(pLo / step) * step;
+
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.font = '10px monospace';
 
-    for (let i = 0; i <= gridRows; i++) {
-      const frac = i / gridRows;
-      const y = Math.round(chartTop + frac * chartH) + 0.5;
-      const price = priceHigh - frac * priceRange;
-
-      // Grid line
-      ctx.strokeStyle = i === 0 || i === gridRows ? GRID_COLOR_STRONG : GRID_COLOR;
+    for (let p = gridStart; p <= pHi; p += step) {
+      const y = Math.round(priceToY(p)) + 0.5;
+      ctx.strokeStyle = THEME.grid;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(0, y);
-      ctx.lineTo(chartRight, y);
+      ctx.lineTo(chartW, y);
       ctx.stroke();
-
-      // Price label
-      ctx.fillStyle = 'rgba(150,175,190,0.45)';
-      ctx.fillText(fmt(price), chartRight + 8, y);
+      ctx.fillStyle = THEME.text;
+      ctx.fillText(fmt(p), chartW + 6, y);
     }
 
-    /* ---- vertical grid + time labels ---- */
+    /* ---- time grid + labels ---- */
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.font = '10px monospace';
 
-    // Space time labels every ~80px of chart width
-    const timeStepPx = 80;
+    const timeStepPx = Math.max(60, Math.min(120, zoom * 10));
 
-    for (let s = startSlot; s < endSlot; s++) {
-      const cx = s * slotW + offset + slotW / 2;
-      // Place label when crossing a timeStepPx boundary
-      const prevBoundary = Math.floor((cx - chartRight + timeStepPx) / timeStepPx);
-      const currBoundary = Math.floor((cx - chartRight) / timeStepPx);
-      if (cx >= 0 && cx <= chartRight && prevBoundary !== currBoundary) {
-        // Vertical grid
+    for (let i = startIdx; i < endIdx; i++) {
+      const cx = i * zoom + v.scrollX + zoom / 2;
+      if (cx < 0 || cx > chartW) continue;
+
+      const prevB = Math.floor((cx - chartW + timeStepPx) / timeStepPx);
+      const currB = Math.floor((cx - chartW) / timeStepPx);
+      if (prevB !== currB) {
         const px = Math.round(cx) + 0.5;
-        ctx.strokeStyle = GRID_COLOR;
+        ctx.strokeStyle = THEME.grid;
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(px, chartTop);
-        ctx.lineTo(px, chartBottom);
+        ctx.lineTo(px, chartBot - volH);
         ctx.stroke();
-        // Time label
-        try {
-          const d = new Date(data[s].t);
-          ctx.fillStyle = 'rgba(150,175,190,0.45)';
-          ctx.fillText(tzTime(d), cx, chartBottom + 6);
-        } catch { /* ignore */ }
+
+        const d = new Date(data[i].time);
+        ctx.fillStyle = THEME.text;
+        ctx.fillText(tzTime(d), cx, chartBot - volH + 4);
+      }
+    }
+
+    /* ---- volume bars ---- */
+    if (volOn && volH > 5) {
+      let vMax = 0;
+      for (let i = startIdx; i < endIdx; i++) {
+        if (data[i].volume > vMax) vMax = data[i].volume;
+      }
+      if (vMax > 0) {
+        for (let i = startIdx; i < endIdx; i++) {
+          const c = data[i];
+          const cx = i * zoom + v.scrollX;
+          if (cx + zoom < 0 || cx > chartW) continue;
+          const bull = c.close >= c.open;
+          const barH = (c.volume / vMax) * (volH - 4);
+          const bx = cx + Math.max(1, zoom * 0.15);
+          const bw = Math.max(1, zoom - Math.max(2, zoom * 0.3));
+          ctx.fillStyle = bull ? THEME.volBull : THEME.volBear;
+          ctx.fillRect(bx, chartBot - barH, bw, barH);
+        }
       }
     }
 
     /* ================================================================ */
-    /*  CANDLESTICKS — TradingView rendering (visible only)             */
+    /*  SMA LINES                                                         */
     /* ================================================================ */
-    for (let i = startSlot; i < endSlot; i++) {
-      const candle = data[i];
-      const cx = i * slotW + offset + slotW / 2;
+    if (sma20on || sma50on) {
+      // SMA 50 (behind SMA 20)
+      if (sma50on) {
+        ctx.beginPath();
+        ctx.strokeStyle = THEME.sma50;
+        ctx.lineWidth = 1.2;
+        ctx.globalAlpha = 0.7;
+        let started = false;
+        for (let i = startIdx; i < endIdx; i++) {
+          if (sma50Data[i] == null) continue;
+          const cx = i * zoom + v.scrollX + zoom / 2;
+          const cy = priceToY(sma50Data[i]!);
+          if (!started) { ctx.moveTo(cx, cy); started = true; }
+          else ctx.lineTo(cx, cy);
+        }
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
 
-      // Skip off-screen candles
-      if (cx + slotW < 0 || cx - slotW > chartW) continue;
+      // SMA 20
+      if (sma20on) {
+        ctx.beginPath();
+        ctx.strokeStyle = THEME.sma20;
+        ctx.lineWidth = 1.2;
+        ctx.globalAlpha = 0.8;
+        let started = false;
+        for (let i = startIdx; i < endIdx; i++) {
+          if (sma20Data[i] == null) continue;
+          const cx = i * zoom + v.scrollX + zoom / 2;
+          const cy = priceToY(sma20Data[i]!);
+          if (!started) { ctx.moveTo(cx, cy); started = true; }
+          else ctx.lineTo(cx, cy);
+        }
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
 
-      const bull = candle.cl >= candle.o;
-      const color = bull ? BULL : BEAR;
-      ctx.globalAlpha = candle.complete ? 1 : 0.5;
+    /* ================================================================ */
+    /*  CANDLESTICKS                                                      */
+    /* ================================================================ */
+    for (let i = startIdx; i < endIdx; i++) {
+      const c = data[i];
+      const cx = i * zoom + v.scrollX;
+      if (cx + zoom < 0 || cx > chartW) continue;
 
-      const yH = priceToY(candle.h);
-      const yL = priceToY(candle.l);
-      const yO = priceToY(candle.o);
-      const yC = priceToY(candle.cl);
+      const bull = c.close >= c.open;
+      const color = bull ? THEME.bull : THEME.bear;
 
-      // Wick: 1px hairline from high to low
+      // Incomplete candle: slightly dimmer
+      ctx.globalAlpha = c.complete ? 1 : 0.55;
+
+      const yH = priceToY(c.high);
+      const yL = priceToY(c.low);
+      const yO = priceToY(c.open);
+      const yC = priceToY(c.close);
+      const midX = cx + zoom / 2;
+
+      // Wick — crisp 1px line
       ctx.strokeStyle = color;
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(Math.round(cx) + 0.5, Math.round(yH));
-      ctx.lineTo(Math.round(cx) + 0.5, Math.round(yL));
+      ctx.moveTo(Math.round(midX) + 0.5, Math.round(yH));
+      ctx.lineTo(Math.round(midX) + 0.5, Math.round(yL));
       ctx.stroke();
 
-      // Body: filled rectangle
+      // Body
       const bodyTop = Math.min(yO, yC);
       const bodyBot = Math.max(yO, yC);
-      const bodyHeight = Math.max(Math.abs(bodyBot - bodyTop), 1);
-      const bx = Math.round(cx - bodyW / 2);
-      const by = Math.round(bodyTop);
+      const bodyH = Math.max(Math.abs(bodyBot - bodyTop), 1);
+      const bw = Math.max(1, zoom * 0.65);
+      const bx = Math.round(midX - bw / 2);
 
+      // Bull: filled body. Bear: filled body (standard)
       ctx.fillStyle = color;
-      ctx.fillRect(bx, by, Math.round(bodyW), bodyHeight);
+      ctx.fillRect(bx, Math.round(bodyTop), Math.round(bw), Math.round(bodyH));
 
       ctx.globalAlpha = 1;
     }
 
-    /* ---- last price line ---- */
+    /* ================================================================ */
+    /*  LAST PRICE LINE                                                   */
+    /* ================================================================ */
     const last = data[data.length - 1];
     if (last) {
-      const yLast = priceToY(last.cl);
-      const isBull = last.cl >= last.o;
-      const lc = isBull ? BULL : BEAR;
+      const yLast = priceToY(last.close);
+      const isBull = last.close >= last.open;
+      const lc = isBull ? THEME.bull : THEME.bear;
 
+      // Dashed line
       ctx.save();
-      ctx.setLineDash([3, 3]);
+      ctx.setLineDash([4, 4]);
       ctx.strokeStyle = lc;
       ctx.lineWidth = 1;
-      ctx.globalAlpha = 0.6;
+      ctx.globalAlpha = 0.5;
       ctx.beginPath();
       ctx.moveTo(0, Math.round(yLast) + 0.5);
-      ctx.lineTo(chartRight, Math.round(yLast) + 0.5);
+      ctx.lineTo(chartW, Math.round(yLast) + 0.5);
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.globalAlpha = 1;
+      ctx.restore();
 
-      // Price tag on right axis
-      ctx.fillStyle = lc;
-      const tagW = PRICE_AXIS_W - 6;
+      // Price tag
+      const tagW = LAYOUT.priceW - 6;
       const tagH = 18;
-      const tagX = chartRight + 3;
-      const tagY = yLast - tagH / 2;
+      const tagX = chartW + 3;
+      const tagY = Math.round(yLast - tagH / 2);
       const r = 3;
+      ctx.fillStyle = lc;
       ctx.beginPath();
       ctx.moveTo(tagX + r, tagY);
       ctx.lineTo(tagX + tagW - r, tagY);
@@ -391,161 +568,144 @@ export default function ChartPage() {
       ctx.quadraticCurveTo(tagX, tagY, tagX + r, tagY);
       ctx.closePath();
       ctx.fill();
+
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 10px monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(fmt(last.cl), tagX + tagW / 2, yLast);
-      ctx.restore();
+      ctx.fillText(fmt(last.close), tagX + tagW / 2, yLast);
     }
 
-    /* ---- bottom info bar background ---- */
-    ctx.fillStyle = 'rgba(10,14,23,0.95)';
-    ctx.fillRect(0, chartBottom, w, TIME_AXIS_H + OHLC_BAR_H);
+    /* ---- separator lines ---- */
+    ctx.strokeStyle = THEME.border;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, LAYOUT.headerH + 0.5);
+    ctx.lineTo(w, LAYOUT.headerH + 0.5);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(chartW + 0.5, LAYOUT.headerH);
+    ctx.lineTo(chartW + 0.5, chartBot);
+    ctx.stroke();
 
-    /* ---- OHLC info bar ---- */
-    let hovered: OHLC | null = null;
-    if (crosshairVisible && data.length > 0) {
-      const idx = Math.round((crosshairX - offset) / slotW);
-      if (idx >= 0 && idx < data.length) hovered = data[idx];
+    /* ---- bottom OHLC bar bg ---- */
+    ctx.fillStyle = THEME.bgPanel;
+    ctx.fillRect(0, chartBot, w, LAYOUT.timeH + LAYOUT.ohlcH);
+
+    /* ---- OHLC values ---- */
+    let hovered: Candle | null = null;
+    let hoverIdx = -1;
+    if (v.showCross && data.length > 0) {
+      hoverIdx = Math.floor((v.crossX - v.scrollX) / zoom);
+      if (hoverIdx >= 0 && hoverIdx < data.length) hovered = data[hoverIdx];
     }
     const info = hovered || last;
-    const ohlcY = chartBottom + TIME_AXIS_H + 2;
+    const ohlcY = chartBot + LAYOUT.timeH;
 
     if (info) {
       ctx.font = '10px monospace';
       ctx.textBaseline = 'middle';
-      const cy = ohlcY + OHLC_BAR_H / 2;
-      let xp = 10;
+      const cy = ohlcY + LAYOUT.ohlcH / 2;
+      let xp = 8;
+      const bull = info.close >= info.open;
+      const ic = bull ? THEME.bull : THEME.bear;
 
-      const isBullInfo = info.cl >= info.o;
-      const infoColor = isBullInfo ? BULL : BEAR;
-
-      // Pair
-      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.fillStyle = THEME.textBright;
       ctx.textAlign = 'left';
-      ctx.fillText(formatPair(pair), xp, cy);
-      xp += ctx.measureText(formatPair(pair)).width + 14;
+      const pLabel = formatPair(pair);
+      ctx.fillText(pLabel, xp, cy);
+      xp += ctx.measureText(pLabel).width + 12;
 
-      // O
-      ctx.fillStyle = infoColor;
-      ctx.fillText(`O ${fmt(info.o)}`, xp, cy);
-      xp += 72;
+      ctx.fillStyle = ic;
+      ctx.fillText(`O ${fmt(info.open)}`, xp, cy);
+      xp += 65;
+      ctx.fillStyle = THEME.bull;
+      ctx.fillText(`H ${fmt(info.high)}`, xp, cy);
+      xp += 65;
+      ctx.fillStyle = THEME.bear;
+      ctx.fillText(`L ${fmt(info.low)}`, xp, cy);
+      xp += 65;
+      ctx.fillStyle = ic;
+      ctx.fillText(`C ${fmt(info.close)}`, xp, cy);
+      xp += 65;
 
-      // H
-      ctx.fillStyle = BULL;
-      ctx.fillText(`H ${fmt(info.h)}`, xp, cy);
-      xp += 72;
-
-      // L
-      ctx.fillStyle = BEAR;
-      ctx.fillText(`L ${fmt(info.l)}`, xp, cy);
-      xp += 72;
-
-      // C
-      ctx.fillStyle = infoColor;
-      ctx.fillText(`C ${fmt(info.cl)}`, xp, cy);
-      xp += 72;
+      // Change
+      if (prevCandle && hovered) {
+        const chg = info.close - (hovered === last && prevCandle ? prevCandle.close : info.open);
+        const chgPct = ((chg / info.open) * 100);
+        const chgColor = chg >= 0 ? THEME.bull : THEME.bear;
+        ctx.fillStyle = chgColor;
+        ctx.fillText(`${chg >= 0 ? '+' : ''}${chgPct.toFixed(3)}%`, xp, cy);
+      }
 
       // Time
-      if (info.t) {
-        try {
-          const td = new Date(info.t);
-          ctx.fillStyle = 'rgba(150,175,190,0.3)';
-          ctx.textAlign = 'right';
-          ctx.fillText(`M1 · ${tzTime(td)}`, w - PRICE_AXIS_W - 10, cy);
-        } catch { /* ignore */ }
+      if (info.time) {
+        const td = new Date(info.time);
+        ctx.fillStyle = THEME.textMuted;
+        ctx.textAlign = 'right';
+        const gLabel = granularity === 'M1' ? '1m' : granularity === 'M5' ? '5m' : granularity === 'M15' ? '15m' : granularity === 'H1' ? '1H' : granularity === 'H4' ? '4H' : '1D';
+        ctx.fillText(`${gLabel}  ${tzTime(td)}`, chartW - 8, cy);
       }
     }
 
-    /* ---- crosshair ---- */
-    if (
-      crosshairVisible &&
-      crosshairX >= 0 && crosshairX <= chartRight &&
-      crosshairY >= chartTop && crosshairY <= chartBottom
-    ) {
+    /* ================================================================ */
+    /*  CROSSHAIR                                                         */
+    /* ================================================================ */
+    if (v.showCross && v.crossX >= 0 && v.crossX <= chartW && v.crossY >= chartTop && v.crossY <= chartTop + priceH) {
       ctx.save();
-      ctx.setLineDash([3, 3]);
-      ctx.strokeStyle = CROSSHAIR_COLOR;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = THEME.crosshair;
       ctx.lineWidth = 1;
 
       // Horizontal
       ctx.beginPath();
-      ctx.moveTo(0, Math.round(crosshairY) + 0.5);
-      ctx.lineTo(chartRight, Math.round(crosshairY) + 0.5);
+      ctx.moveTo(0, Math.round(v.crossY) + 0.5);
+      ctx.lineTo(chartW, Math.round(v.crossY) + 0.5);
       ctx.stroke();
 
       // Vertical
       ctx.beginPath();
-      ctx.moveTo(Math.round(crosshairX) + 0.5, chartTop);
-      ctx.lineTo(Math.round(crosshairX) + 0.5, chartBottom);
+      ctx.moveTo(Math.round(v.crossX) + 0.5, chartTop);
+      ctx.lineTo(Math.round(v.crossX) + 0.5, chartBot - volH);
       ctx.stroke();
 
       ctx.setLineDash([]);
 
-      // Price label on Y axis
-      const crossPrice = priceHigh - ((crosshairY - chartTop) / chartH) * priceRange;
-      ctx.fillStyle = 'rgba(20,30,50,0.9)';
-      ctx.fillRect(chartRight + 3, crosshairY - 9, PRICE_AXIS_W - 6, 18);
-      ctx.fillStyle = 'rgba(200,215,230,0.8)';
+      // Y price label
+      const crossPrice = pHi - ((v.crossY - chartTop) / priceH) * pRange;
+      ctx.fillStyle = 'rgba(20,28,40,0.92)';
+      ctx.fillRect(chartW + 3, v.crossY - 9, LAYOUT.priceW - 6, 18);
+      ctx.fillStyle = THEME.textBright;
       ctx.font = '10px monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(fmt(crossPrice), chartRight + PRICE_AXIS_W / 2, crosshairY);
-      ctx.restore();
+      ctx.fillText(fmt(crossPrice), chartW + LAYOUT.priceW / 2, v.crossY);
 
-      // Tooltip
-      const tooltip = tooltipRef.current;
-      if (tooltip && hovered) {
-        const tBull = hovered.cl >= hovered.o;
-        const tColor = tBull ? BULL : BEAR;
-        tooltip.innerHTML = `
-          <div style="color:${tColor};font-weight:bold;font-size:11px;margin-bottom:2px">${formatPair(pair)}</div>
-          <div style="color:rgba(200,215,230,0.7);font-size:10px;line-height:1.7">
-            <span style="color:#888">O</span> ${fmt(hovered.o)}
-            <span style="color:#888;margin-left:6px">H</span> ${fmt(hovered.h)}<br/>
-            <span style="color:#888">L</span> ${fmt(hovered.l)}
-            <span style="color:#888;margin-left:6px">C</span> ${fmt(hovered.cl)}
-          </div>
-          <div style="color:rgba(150,175,190,0.35);font-size:9px;margin-top:2px">
-            ${hovered.t ? new Date(hovered.t).toISOString().slice(0, 19).replace('T', ' ') : ''}
-          </div>`;
-        let tx = crosshairX + 16;
-        let ty = crosshairY - 60;
-        if (tx + 140 > chartRight) tx = crosshairX - 150;
-        if (ty < chartTop) ty = crosshairY + 16;
-        tooltip.style.left = tx + 'px';
-        tooltip.style.top = ty + 'px';
-        tooltip.style.display = 'block';
+      // X time label
+      if (hoverIdx >= 0 && hoverIdx < data.length) {
+        const td = new Date(data[hoverIdx].time);
+        const tStr = tzTime(td);
+        const tw = ctx.measureText(tStr).width + 12;
+        ctx.fillStyle = 'rgba(20,28,40,0.92)';
+        ctx.fillRect(v.crossX - tw / 2, chartBot - volH + 2, tw, 18);
+        ctx.fillStyle = THEME.textBright;
+        ctx.textAlign = 'center';
+        ctx.fillText(tStr, v.crossX, chartBot - volH + 11);
       }
-    } else {
-      const tooltip = tooltipRef.current;
-      if (tooltip) tooltip.style.display = 'none';
+
+      ctx.restore();
     }
 
-    /* ---- header bg (painted last so it covers) ---- */
-    ctx.fillStyle = 'rgba(10,14,23,0.95)';
-    ctx.fillRect(0, 0, w, HEADER_H);
+    /* ---- header bg (drawn last to cover) ---- */
+    ctx.fillStyle = THEME.bgPanel;
+    ctx.fillRect(0, 0, w, LAYOUT.headerH);
 
-    // Separator line
-    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, HEADER_H - 0.5);
-    ctx.lineTo(w, HEADER_H - 0.5);
-    ctx.stroke();
-  }, [pair, dec, fmt, tzTime]);
+  }, [pair, dec, fmt, tzTime, granularity, sma20on, sma50on, volOn, sma20, sma50, loading, lastCandle, prevCandle]);
 
   /* ---- RAF loop ---- */
   useEffect(() => {
     const loop = () => {
-      const c = chartRef.current;
-      if (!c.isDragging && Math.abs(c.velocity) > 0.3) {
-        clampOffset();
-        c.velocity *= MOMENTUM_DECAY;
-        setChart(prev => ({ ...prev, offset: chartRef.current.offset }));
-        dirtyRef.current = true;
-      }
+      applyClamp();
       if (dirtyRef.current) {
         dirtyRef.current = false;
         draw();
@@ -554,98 +714,83 @@ export default function ChartPage() {
     };
     rafRef.current = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [clampOffset, draw]);
+  }, [draw, applyClamp]);
 
-  /* ---- clamp on data/scale change ---- */
-  useEffect(() => {
-    clampOffset();
-    dirtyRef.current = true;
-  }, [chart.data, chart.scale, clampOffset]);
+  useEffect(() => { dirtyRef.current = true; }, [view, candles, sma20, sma50, granularity]);
 
-  useEffect(() => { dirtyRef.current = true; }, [chart]);
+  /* ================================================================== */
+  /*  INTERACTION                                                         */
+  /* ================================================================== */
 
-  /* ---- interaction handlers ---- */
-  const getPos = useCallback((e: React.MouseEvent | MouseEvent) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
-    const rect = canvas.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  const getPos = useCallback((e: React.MouseEvent | MouseEvent | Touch) => {
+    const r = canvasRef.current?.getBoundingClientRect();
+    if (!r) return { x: 0, y: 0 };
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
   }, []);
 
+  /* ---- mouse ---- */
   const onWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
-    const { x } = getPos(e.nativeEvent);
-    const chartW = sizeRef.current.w - PRICE_AXIS_W;
-    const ratio = Math.max(0, Math.min(1, x / chartW));
-    setChart(prev => {
-      const factor = e.deltaY > 0 ? 0.9 : 1.1;
-      const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, prev.scale * factor));
-      const newTotalW = prev.data.length * CANDLE_SLOT * newScale;
-      return { ...prev, scale: newScale, offset: x - ratio * newTotalW };
-    });
+    const pos = getPos(e.nativeEvent);
+    const chartW = sizeRef.current.w - LAYOUT.priceW;
+    const ratio = Math.max(0, Math.min(1, pos.x / chartW));
+    const v = viewRef.current;
+    const oldZoom = v.zoom;
+    const factor = e.deltaY > 0 ? 0.88 : 1.12;
+    const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, oldZoom * factor));
+
+    // Zoom toward cursor position
+    const totalW = candlesRef.current.length * newZoom;
+    const newScrollX = pos.x - ratio * totalW;
+
+    setView(prev => ({ ...prev, zoom: newZoom, scrollX: newScrollX }));
     dirtyRef.current = true;
   }, [getPos]);
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     const pos = getPos(e);
-    setChart(prev => ({
-      ...prev, isDragging: true, dragStartX: pos.x, dragStartOffset: prev.offset, velocity: 0,
-    }));
-    // Disable auto-follow when user manually drags (unless dragging right toward latest)
-    const c = chartRef.current;
-    const slotW = CANDLE_SLOT * c.scale;
-    const chartW = sizeRef.current.w - PRICE_AXIS_W;
-    const totalW = c.data.length * slotW;
-    const rightPad = slotW * 3;
-    const minOffset = -(totalW - chartW + rightPad);
-    if (c.offset < minOffset + slotW * 2) {
-      autoFollowRef.current = true;
-    } else {
-      autoFollowRef.current = false;
-    }
-    lastDragXRef.current = pos.x;
-    lastDragTimeRef.current = Date.now();
-  }, [getPos]);
+    isDragRef.current = true;
+    dragStartRef.current = { x: pos.x, scrollX: viewRef.current.scrollX };
+
+    // If near right edge, keep auto-follow
+    const clamp = getClamp();
+    autoFollowRef.current = viewRef.current.scrollX <= clamp + viewRef.current.zoom;
+  }, [getPos, getClamp]);
 
   const onMouseMove = useCallback((e: React.MouseEvent) => {
     const pos = getPos(e);
-    setChart(prev => {
-      if (prev.isDragging) {
-        const dx = pos.x - prev.dragStartX;
-        const dt = Date.now() - lastDragTimeRef.current;
-        if (dt > 0) chartRef.current.velocity = (pos.x - lastDragXRef.current) / dt * 16;
-        lastDragXRef.current = pos.x;
-        lastDragTimeRef.current = Date.now();
-        return { ...prev, offset: prev.dragStartOffset + dx, crosshairX: pos.x, crosshairY: pos.y, crosshairVisible: true };
-      }
-      const vis = pos.y >= HEADER_H && pos.y <= sizeRef.current.h - TIME_AXIS_H - OHLC_BAR_H;
-      return { ...prev, crosshairX: pos.x, crosshairY: pos.y, crosshairVisible: vis };
-    });
+    if (isDragRef.current) {
+      const dx = pos.x - dragStartRef.current.x;
+      const newScrollX = dragStartRef.current.scrollX + dx;
+      autoFollowRef.current = false;
+      setView(prev => ({ ...prev, scrollX: newScrollX, crossX: pos.x, crossY: pos.y, showCross: true }));
+    } else {
+      const chartH = sizeRef.current.h - LAYOUT.headerH - LAYOUT.timeH - LAYOUT.ohlcH;
+      const vis = pos.y >= LAYOUT.headerH && pos.y <= LAYOUT.headerH + chartH * (1 - LAYOUT.volRatio);
+      setView(prev => ({ ...prev, crossX: pos.x, crossY: pos.y, showCross: vis }));
+    }
     dirtyRef.current = true;
   }, [getPos]);
 
   const onMouseUp = useCallback(() => {
-    setChart(prev => {
-      // Re-enable auto-follow if user is near right edge after drag
-      const slotW = CANDLE_SLOT * prev.scale;
-      const chartW = sizeRef.current.w - PRICE_AXIS_W;
-      const totalW = prev.data.length * slotW;
-      const rightPad = slotW * 3;
-      const minOffset = -(totalW - chartW + rightPad);
-      if (prev.offset <= minOffset + slotW) {
+    if (isDragRef.current) {
+      const clamp = getClamp();
+      if (viewRef.current.scrollX <= clamp + viewRef.current.zoom) {
         autoFollowRef.current = true;
       }
-      return { ...prev, isDragging: false };
-    });
-  }, []);
+    }
+    isDragRef.current = false;
+    setView(prev => ({ ...prev, isDragging: false }));
+  }, [getClamp]);
+
   const onMouseLeave = useCallback(() => {
-    setChart(prev => ({ ...prev, isDragging: false, crosshairVisible: false }));
-    if (tooltipRef.current) tooltipRef.current.style.display = 'none';
+    isDragRef.current = false;
+    setView(prev => ({ ...prev, showCross: false }));
     dirtyRef.current = true;
   }, []);
 
   /* ---- touch ---- */
-  const touchDist = (t: React.TouchList) => {
+  const pinchDist = (t: React.TouchList) => {
     const dx = t[0].clientX - t[1].clientX;
     const dy = t[0].clientY - t[1].clientY;
     return Math.sqrt(dx * dx + dy * dy);
@@ -653,135 +798,230 @@ export default function ChartPage() {
 
   const onTouchStart = useCallback((e: React.TouchEvent) => {
     e.preventDefault();
-    if (e.touches.length === 2) { pinchDistRef.current = touchDist(e.touches); return; }
-    if (e.touches.length === 1) {
-      const r = canvasRef.current?.getBoundingClientRect();
-      if (!r) return;
-      const x = e.touches[0].clientX - r.left, y = e.touches[0].clientY - r.top;
-      setChart(prev => ({ ...prev, isDragging: true, dragStartX: x, dragStartOffset: prev.offset, velocity: 0, crosshairX: x, crosshairY: y, crosshairVisible: true }));
-      lastDragXRef.current = x;
-      lastDragTimeRef.current = Date.now();
-    }
-  }, []);
-
-  const onTouchMove = useCallback((e: React.TouchEvent) => {
-    e.preventDefault();
-    if (e.touches.length === 2 && pinchDistRef.current > 0) {
-      const d = touchDist(e.touches);
-      const ratio = d / pinchDistRef.current;
-      pinchDistRef.current = d;
-      setChart(prev => ({ ...prev, scale: Math.max(MIN_SCALE, Math.min(MAX_SCALE, prev.scale * ratio)) }));
-      dirtyRef.current = true;
+    if (e.touches.length === 2) {
+      pinchRef.current = pinchDist(e.touches);
+      lastPinchZoomRef.current = viewRef.current.zoom;
+      autoFollowRef.current = false;
       return;
     }
     if (e.touches.length === 1) {
-      const r = canvasRef.current?.getBoundingClientRect();
-      if (!r) return;
-      const x = e.touches[0].clientX - r.left, y = e.touches[0].clientY - r.top;
-      const dt = Date.now() - lastDragTimeRef.current;
-      setChart(prev => {
-        if (prev.isDragging && dt > 0) {
-          chartRef.current.velocity = (x - lastDragXRef.current) / dt * 16;
-          lastDragXRef.current = x;
-          lastDragTimeRef.current = Date.now();
-          return { ...prev, offset: prev.dragStartOffset + (x - prev.dragStartX), crosshairX: x, crosshairY: y };
-        }
-        return { ...prev, crosshairX: x, crosshairY: y };
-      });
+      const pos = getPos(e.touches[0]);
+      isDragRef.current = true;
+      dragStartRef.current = { x: pos.x, scrollX: viewRef.current.scrollX };
+      setView(prev => ({ ...prev, crossX: pos.x, crossY: pos.y, showCross: true }));
+    }
+  }, [getPos]);
+
+  const onTouchMove = useCallback((e: React.TouchEvent) => {
+    e.preventDefault();
+    if (e.touches.length === 2 && pinchRef.current > 0) {
+      const d = pinchDist(e.touches);
+      const ratio = d / pinchRef.current;
+      pinchRef.current = d;
+      const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, lastPinchZoomRef.current * ratio));
+      setView(prev => ({ ...prev, zoom: newZoom }));
+      dirtyRef.current = true;
+      return;
+    }
+    if (e.touches.length === 1 && isDragRef.current) {
+      const pos = getPos(e.touches[0]);
+      const dx = pos.x - dragStartRef.current.x;
+      autoFollowRef.current = false;
+      setView(prev => ({ ...prev, scrollX: dragStartRef.current.scrollX + dx, crossX: pos.x, crossY: pos.y }));
       dirtyRef.current = true;
     }
-  }, []);
+  }, [getPos]);
 
   const onTouchEnd = useCallback((e: React.TouchEvent) => {
-    if (e.touches.length < 2) pinchDistRef.current = 0;
+    if (e.touches.length < 2) pinchRef.current = 0;
     if (e.touches.length === 0) {
-      setChart(prev => {
-        // Re-enable auto-follow if near right edge
-        const slotW = CANDLE_SLOT * prev.scale;
-        const chartW = sizeRef.current.w - PRICE_AXIS_W;
-        const totalW = prev.data.length * slotW;
-        const rightPad = slotW * 3;
-        const minOffset = -(totalW - chartW + rightPad);
-        if (prev.offset <= minOffset + slotW) {
-          autoFollowRef.current = true;
-        }
-        return { ...prev, isDragging: false, crosshairVisible: false };
-      });
-      if (tooltipRef.current) tooltipRef.current.style.display = 'none';
+      const clamp = getClamp();
+      if (viewRef.current.scrollX <= clamp + viewRef.current.zoom) {
+        autoFollowRef.current = true;
+      }
+      isDragRef.current = false;
+      setView(prev => ({ ...prev, showCross: false }));
       dirtyRef.current = true;
     }
-  }, []);
+  }, [getClamp]);
 
   /* ---- zoom buttons ---- */
-  const zoomIn = useCallback(() => { setChart(prev => ({ ...prev, scale: Math.min(MAX_SCALE, prev.scale * 1.3) })); dirtyRef.current = true; }, []);
-  const zoomOut = useCallback(() => { setChart(prev => ({ ...prev, scale: Math.max(MIN_SCALE, prev.scale / 1.3) })); dirtyRef.current = true; }, []);
+  const zoomIn = useCallback(() => {
+    setView(prev => ({ ...prev, zoom: Math.min(MAX_ZOOM, prev.zoom * 1.3) }));
+    dirtyRef.current = true;
+  }, []);
+  const zoomOut = useCallback(() => {
+    setView(prev => ({ ...prev, zoom: Math.max(MIN_ZOOM, prev.zoom / 1.3) }));
+    dirtyRef.current = true;
+  }, []);
   const zoomReset = useCallback(() => {
-    setChart(prev => {
-      autoFollowRef.current = true;
-      firstLoadRef.current = true;
-      return { ...prev, scale: 1, offset: 0, velocity: 0 };
-    });
+    autoFollowRef.current = true;
+    setView(prev => ({ ...prev, zoom: DEFAULT_ZOOM, scrollX: 0 }));
     dirtyRef.current = true;
   }, []);
 
-  const lastPrice = chart.data.length > 0 ? chart.data[chart.data.length - 1].cl : 0;
-  const isBullLast = chart.data.length > 0 ? chart.data[chart.data.length - 1].cl >= chart.data[chart.data.length - 1].o : true;
+  /* ---- pair/TF change ---- */
+  const changePair = useCallback((p: string) => {
+    setChartPair(p);
+    setCandles([]);
+    autoFollowRef.current = true;
+    setView(prev => ({ ...prev, scrollX: 0 }));
+    dirtyRef.current = true;
+  }, [setChartPair]);
+
+  const changeGranularity = useCallback((g: Granularity) => {
+    setGranularity(g);
+    setCandles([]);
+    autoFollowRef.current = true;
+    setView(prev => ({ ...prev, scrollX: 0 }));
+    dirtyRef.current = true;
+  }, []);
+
+  /* ================================================================== */
+  /*  RENDER                                                              */
+  /* ================================================================== */
+
+  const isBullLast = lastCandle ? lastCandle.close >= lastCandle.open : true;
+  const spreadPips = lastCandle ? (lastCandle.spread * (isJPYPair(pair) ? 100 : 10000)).toFixed(1) : '0';
 
   return (
-    <div
-      ref={containerRef}
-      className="relative w-full h-full overflow-hidden"
-      style={{ touchAction: 'none', background: BG }}
-      onWheel={onWheel}
-      onMouseDown={onMouseDown}
-      onMouseMove={onMouseMove}
-      onMouseUp={onMouseUp}
-      onMouseLeave={onMouseLeave}
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
-    >
-      {/* Header bar */}
+    <div className="relative w-full h-full flex flex-col overflow-hidden" style={{ background: THEME.bg }}>
+      {/* ===== HEADER BAR ===== */}
       <div
-        className="absolute top-0 left-0 right-0 z-20 flex items-center gap-3 px-3"
-        style={{ height: HEADER_H, background: 'rgba(10,14,23,0.95)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+        className="flex items-center gap-2 px-2 shrink-0"
+        style={{ height: LAYOUT.headerH, background: THEME.bgPanel, borderBottom: `1px solid ${THEME.border}` }}
       >
-        <div className="flex items-center gap-2">
-          <span className="font-mono font-bold text-lg text-emerald-400">{formatPair(pair)}</span>
-          <span className="font-mono font-bold text-lg" style={{ color: isBullLast ? BULL : BEAR }}>
-            {lastPrice > 0 ? fmt(lastPrice) : '---'}
+        {/* Pair + price */}
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono font-bold text-base text-emerald-400">{formatPair(pair)}</span>
+          <span className="font-mono font-bold text-base" style={{ color: isBullLast ? THEME.bull : THEME.bear }}>
+            {lastCandle ? fmt(lastCandle.close) : '---'}
           </span>
-          <span className="rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-mono px-2 py-0.5">M1</span>
         </div>
+
+        <div className="flex items-center gap-1.5 ml-1">
+          {/* Granularity selector */}
+          <select
+            value={granularity}
+            onChange={e => changeGranularity(e.target.value as Granularity)}
+            className="rounded px-1.5 py-0.5 text-[11px] font-mono text-white outline-none cursor-pointer"
+            style={{ background: 'rgba(255,255,255,0.05)', border: `1px solid ${THEME.border}` }}
+          >
+            <option value="M1">1m</option>
+            <option value="M5">5m</option>
+            <option value="M15">15m</option>
+            <option value="H1">1H</option>
+            <option value="H4">4H</option>
+            <option value="D">1D</option>
+          </select>
+
+          {/* Pair selector */}
+          <select
+            value={pair}
+            onChange={e => changePair(e.target.value)}
+            className="rounded px-1.5 py-0.5 text-[11px] font-mono text-white outline-none cursor-pointer"
+            style={{ background: 'rgba(255,255,255,0.05)', border: `1px solid ${THEME.border}` }}
+          >
+            {ALL_PAIRS.map(p => <option key={p} value={p}>{formatPair(p)}</option>)}
+          </select>
+        </div>
+
         <div className="flex-1" />
-        <select
-          value={pair}
-          onChange={e => { setChartPair(e.target.value); firstLoadRef.current = true; setChart(prev => ({ ...prev, data: [], offset: 0, velocity: 0 })); dirtyRef.current = true; }}
-          className="rounded-lg px-3 py-1.5 text-sm font-mono text-white outline-none cursor-pointer"
-          style={{ background: '#0c1220', border: '1px solid rgba(255,255,255,0.08)' }}
-        >
-          {ALL_PAIRS.map(p => <option key={p} value={p}>{formatPair(p)}</option>)}
-        </select>
-        <div className="flex items-center gap-1">
-          <button onClick={zoomIn} className="rounded-lg flex items-center justify-center text-emerald-400 hover:bg-white/[0.06] transition-colors"
-            style={{ width: 32, height: 32, background: 'rgba(12,18,32,0.9)', border: '1px solid rgba(255,255,255,0.08)' }}>
-            <Plus size={14} />
+
+        {/* Indicator toggles */}
+        <div className="hidden sm:flex items-center gap-1">
+          <button
+            onClick={() => setSma20on(v => !v)}
+            className="rounded px-2 py-0.5 text-[10px] font-mono transition-colors"
+            style={{
+              color: sma20on ? THEME.sma20 : THEME.textMuted,
+              background: sma20on ? THEME.sma20bg : 'rgba(255,255,255,0.03)',
+              border: `1px solid ${sma20on ? THEME.sma20 : THEME.border}`,
+            }}
+          >SMA 20</button>
+          <button
+            onClick={() => setSma50on(v => !v)}
+            className="rounded px-2 py-0.5 text-[10px] font-mono transition-colors"
+            style={{
+              color: sma50on ? THEME.sma50 : THEME.textMuted,
+              background: sma50on ? THEME.sma50bg : 'rgba(255,255,255,0.03)',
+              border: `1px solid ${sma50on ? THEME.sma50 : THEME.border}`,
+            }}
+          >SMA 50</button>
+          <button
+            onClick={() => { setVolOn(v => !v); dirtyRef.current = true; }}
+            className="rounded px-2 py-0.5 text-[10px] font-mono transition-colors"
+            style={{
+              color: volOn ? THEME.textBright : THEME.textMuted,
+              background: volOn ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)',
+              border: `1px solid ${volOn ? 'rgba(255,255,255,0.15)' : THEME.border}`,
+            }}
+          >VOL</button>
+        </div>
+
+        {/* Zoom controls */}
+        <div className="flex items-center gap-0.5 ml-1">
+          <button onClick={zoomIn} className="rounded flex items-center justify-center text-emerald-400 hover:bg-white/[0.06] transition-colors"
+            style={{ width: 28, height: 28, background: 'rgba(255,255,255,0.04)', border: `1px solid ${THEME.border}` }}>
+            <Plus size={13} />
           </button>
-          <button onClick={zoomOut} className="rounded-lg flex items-center justify-center text-emerald-400 hover:bg-white/[0.06] transition-colors"
-            style={{ width: 32, height: 32, background: 'rgba(12,18,32,0.9)', border: '1px solid rgba(255,255,255,0.08)' }}>
-            <Minus size={14} />
+          <button onClick={zoomOut} className="rounded flex items-center justify-center text-emerald-400 hover:bg-white/[0.06] transition-colors"
+            style={{ width: 28, height: 28, background: 'rgba(255,255,255,0.04)', border: `1px solid ${THEME.border}` }}>
+            <Minus size={13} />
           </button>
-          <button onClick={zoomReset} className="rounded-lg flex items-center justify-center text-emerald-400 hover:bg-white/[0.06] transition-colors"
-            style={{ width: 32, height: 32, background: 'rgba(12,18,32,0.9)', border: '1px solid rgba(255,255,255,0.08)' }}>
-            <RotateCcw size={14} />
+          <button onClick={zoomReset} className="rounded flex items-center justify-center text-emerald-400 hover:bg-white/[0.06] transition-colors"
+            style={{ width: 28, height: 28, background: 'rgba(255,255,255,0.04)', border: `1px solid ${THEME.border}` }}>
+            <RotateCcw size={13} />
           </button>
         </div>
       </div>
 
-      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+      {/* ===== CHART CANVAS ===== */}
+      <div
+        ref={containerRef}
+        className="flex-1 relative overflow-hidden"
+        style={{ touchAction: 'none' }}
+        onWheel={onWheel}
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onMouseUp={onMouseUp}
+        onMouseLeave={onMouseLeave}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+      >
+        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
 
-      <div ref={tooltipRef} className="absolute z-30 pointer-events-none rounded-lg px-2.5 py-2"
-        style={{ display: 'none', background: 'rgba(12,18,32,0.92)', border: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 4px 16px rgba(0,0,0,0.4)', whiteSpace: 'nowrap' }} />
+        {/* Error overlay */}
+        {error && (
+          <div className="absolute inset-0 flex items-center justify-center z-10">
+            <div className="rounded-lg px-4 py-3 text-sm font-mono" style={{ background: 'rgba(239,68,68,0.15)', color: THEME.bear, border: '1px solid rgba(239,68,68,0.3)' }}>
+              {error}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ===== BOTTOM INFO ===== */}
+      <div
+        className="flex items-center gap-3 px-3 shrink-0 text-[10px] font-mono"
+        style={{
+          height: LAYOUT.ohlcH + LAYOUT.timeH,
+          background: THEME.bgPanel,
+          borderTop: `1px solid ${THEME.border}`,
+          color: THEME.textMuted,
+        }}
+      >
+        <span style={{ color: THEME.text }}>BID</span>
+        <span>Spread: {spreadPips} pips</span>
+        <span>{candles.length} candles</span>
+        <div className="flex-1" />
+        <span>{candles.filter(c => c.complete).length} complete</span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: loading ? THEME.textMuted : THEME.bull }} />
+          {loading ? 'Connecting...' : 'Live'}
+        </span>
+      </div>
     </div>
   );
 }

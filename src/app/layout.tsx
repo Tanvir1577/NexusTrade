@@ -16,6 +16,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "NexusTrade Pro — Binary Signal Terminal",
   description: "Professional binary options signal analysis and trading terminal with real-time market data, advanced pattern detection, and comprehensive performance tracking.",
+  icons: {
+    icon: "/favicon.svg",
+  },
 };
 
 export default function RootLayout({
